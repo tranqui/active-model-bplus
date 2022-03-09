@@ -222,6 +222,199 @@ class LagrangeInterpolator:
 
         return u
 
+class HermiteInterpolatingPolynomial:
+    # def __init__(self, global_nodes, weights, degree, x=None, u=None):
+    #     assert (len(global_nodes)-1)%degree == 0
+    #     assert len(global_nodes) == len(global_nodes)
+
+    #     self.global_nodes = global_nodes
+    #     self.weights = weights
+    #     self.degree = degree
+
+    #     if x is not None: self.interpolating_variable = x
+    #     else: self.interpolating_variable = sp.Symbol('x')
+    #     if u is not None: self.interpolating_function = u
+    #     else: self.interpolating_function = sp.Function('u')
+
+    #     self.local_node_variables = [sp.Symbol('x%d'%i, real=True, constant=True) for i in range(degree+1)]
+    #     self.local_node_weight_variables = [sp.Symbol('w%d'%i, real=True, constant=True) for i in range(degree+1)]
+    #     poly = interpolating_poly(degree+1, self.xvar,
+    #                               self.local_node_variables, self.local_node_weight_variables)
+    #     self.local_polynomial = sp.Lambda(self.xvar, poly)
+
+    #     self.weight_functions = [sp.Lambda(self.xvar, self.local_polynomial(self.xvar).diff(w)) for w in self.local_node_weight_variables]
+
+    def __init__(self, order, x=sp.Symbol('x'), w=sp.IndexedBase('w')):
+        self.x = x
+        self.w = w
+
+        # Degree of polynomial must have enough degrees of freedom to match constraints
+        # on both boundaries, so we must double it.
+        self.degree = 2*order-1
+
+        M = np.zeros((self.degree+1, self.degree+1), dtype=int)
+        powers = np.flipud(np.arange(self.degree+1))
+
+        for derivative in range(order):
+            nonzero = self.degree+1 - derivative
+            coefficients = factorial(powers[:nonzero]) / factorial(powers[:nonzero]-derivative)
+            M[2*derivative,:nonzero] = coefficients
+            coefficients[::2] *= -1
+            if derivative%2 == 1: coefficients *= -1
+            M[2*derivative+1,:nonzero] = coefficients
+
+        self.nodes = [(w[0,i], w[1,i]) for i in range(order)]
+        self.nodes = [val for tup in self.nodes for val in tup]
+        Minv = np.linalg.inv(M)
+        self.coefficients = Minv.dot(self.nodes)
+        self.expression = self.coefficients.dot(x**powers)
+        self.weight_functions = [self.expression.diff(w) for w in self.nodes]
+
+class HermiteInterpolator:
+    """An interpolator on the line interval [-1,1] which matches values and derivatives on the
+    boundaries. This is helpful for representing finite element solutions to ODEs where
+    continuity of derivatives is required."""
+
+    def __init__(self, nodes, weights, xvar=None, u=None):
+        try:
+            shape = weights.shape
+        except:
+            weights = np.vstack(weights).T
+            shape = weights.shape
+
+        num_nodes, self.order = shape
+        self.order -= 1
+        assert len(nodes) == num_nodes
+
+        self.nodes = nodes
+        self.weights = weights
+
+        self.poly = HermiteInterpolatingPolynomial(order)
+        if True: return
+
+        sys.exit(0)
+
+        self.global_nodes = global_nodes
+        self.weights = weights
+        self.degree = degree
+
+        if x is not None: self.interpolating_variable = x
+        else: self.interpolating_variable = sp.Symbol('x')
+        if u is not None: self.interpolating_function = u
+        else: self.interpolating_function = sp.Function('u')
+
+        self.local_node_variables = [sp.Symbol('x%d'%i, real=True, constant=True) for i in range(degree+1)]
+        self.local_node_weight_variables = [sp.Symbol('w%d'%i, real=True, constant=True) for i in range(degree+1)]
+        poly = interpolating_poly(degree+1, self.xvar,
+                                  self.local_node_variables, self.local_node_weight_variables)
+        self.local_polynomial = sp.Lambda(self.xvar, poly)
+
+        self.weight_functions = [sp.Lambda(self.xvar, self.local_polynomial(self.xvar).diff(w)) for w in self.local_node_weight_variables]
+
+    @property
+    def npoints(self):
+        return self.global_nodes.size
+
+    @property
+    def xvar(self):
+        """Short-hand for independent variable."""
+        return self.interpolating_variable
+
+    @property
+    def uvar(self):
+        """Short-hand for dependent variable."""
+        return self.interpolating_function
+
+    @property
+    def x(self):
+        """Short-hand for node positions."""
+        return self.nodes
+
+    @property
+    def w(self):
+        """Short-hand for node weights."""
+        return self.weights
+
+    @property
+    def nelements(self):
+        """Number of distinct elements over which we interpolate via local polynomials
+        (i.e. with finite support) of finite degree."""
+        return len(self.global_nodes)-1
+
+    @property
+    def local_indices(self):
+        """Bookkeeping for local nodes y0,...,ydeg for each element."""
+        return [np.arange(self.npoints+1)[i::self.degree][:self.nelements] for i in range(self.degree+1)]
+
+    @property
+    def local_nodes(self):
+        """Positions of local nodes within each element.
+
+        Returns:
+            List of length degree+1. Each entry is a vector (of size nelements) containing
+            positions of the ith node.
+        """
+        return [self.global_nodes[i] for i in self.local_indices]
+
+    @property
+    def element_edges(self):
+        """Left edges of each element for binning coordinates to determine their element."""
+        return self.x[:-1:self.degree]
+
+    def find_element(self, x):
+        assert np.all(x >= self.x[0])
+        assert np.all(x <= self.x[-1])
+        elements = np.digitize(x, self.element_edges)-1
+        return elements
+
+    def element_weight_functions(self, element):
+        functions = []
+
+        lower_limit = self.global_nodes[element*self.degree]
+        upper_limit = self.global_nodes[(element+1)*self.degree]
+        for i in range(self.degree+1):
+            w = self.weight_functions[i]
+            for j in range(self.degree+1):
+                w = w.subs(self.local_node_variables[j], self.global_nodes[self.degree*element + j])
+
+            w = sp.Lambda( self.xvar, sp.Piecewise( (0, self.xvar < lower_limit),
+                                                    (0, self.xvar >= upper_limit),
+                                                    (w(self.xvar), True) ) )
+            functions += [w]
+
+        return functions
+
+    def weight_function(self, i):
+        local_index = i % self.degree
+        element = i // self.degree
+
+        if local_index > 0:
+            w = self.element_weight_functions(element)[local_index]
+        else:
+            left = self.element_weight_functions(element-1)[-1]
+            try: right = self.element_weight_functions(element)[0]
+            except: right = sp.Lambda(self.xvar, 0) # fails with boundary on far right, so we just set it to zero there
+            location = self.global_nodes[element*self.degree]
+            w = sp.Lambda( self.xvar, sp.Piecewise( (left(self.xvar), self.xvar < location),
+                                                    (right(self.xvar), True) ) )
+
+        return sp.lambdify(self.xvar, w(self.xvar))
+
+    def __call__(self, x, derivative=0):
+        # Determine which element each coordinate is in so we use the correct local polynomial.
+        elements = self.find_element(x)
+        local_nodes = [self.global_nodes[indices[elements]] for indices in self.local_indices]
+
+        # Build Lagrange-polynomials which are our basis functions:
+        u = np.zeros(x.shape)
+        for w, indices in zip(self.weight_functions, self.local_indices):
+            if derivative > 0: w = sp.Lambda(self.xvar, w(self.xvar).diff(self.xvar, derivative))
+            w = sp.lambdify([self.xvar] + self.local_node_variables, w(self.xvar))
+            weights = self.weights[indices[elements]]
+            u += weights * w(x, *local_nodes)
+
+        return u
+
 class FiniteElement1dODESolver(LagrangeInterpolator):
     def __init__(self, equation, test_function, u, x, global_nodes, degree, u_guess=None,
                  integrate_analytically=False, print_updates=None):
@@ -421,8 +614,33 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
         return Jfull
 
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
     print_updates = sys.stderr
     #print_updates = None
+
+    plt.figure()
+    poly = HermiteInterpolatingPolynomial(2)
+    x = np.linspace(-1, 1, 1000)
+    for w in poly.weight_functions:
+        f = sp.lambdify(poly.x, w)
+        plt.plot(x, f(x))
+    #plt.show()
+
+    #sys.exit(0)
+
+    plt.figure()
+    x = np.linspace(0, 1, 4)
+    y = x**5
+    yp = 5*x**4
+    f = HermiteInterpolator(x, [y,yp])
+    pl, = plt.plot(x, y, 'o')
+    x = np.linspace(0, 1, 1000)
+    plt.plot(x, f(x), lw=0.5, c=pl.get_color())
+    plt.plot(x, x**5, '--', lw=0.5)
+    plt.show()
+
+    sys.exit(0)
 
     degree = 2
     nelements = 3
