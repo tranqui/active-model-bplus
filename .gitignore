@@ -1,0 +1,10 @@
+*.o
+build/
+*.so
+.#*
+*.pyc
+*.cache
+*.egg-info
+dist/
+*log.lammps
+dump.log
