@@ -280,6 +280,22 @@ class HermiteInterpolatingPolynomial:
         self.expression = self.coefficients.dot(x**powers)
         self.weight_functions = [self.expression.diff(w) for w in self.nodes]
 
+        # print(self.expression)
+        # s = sp.Function('s')
+        # q = sp.IndexedBase('q')
+        # s_expr = self.expression.subs(w, q)
+        # print(s_expr)
+        # sys.exit(0)
+        # local_expression = self.expression.subs(x, s(x))
+        # for derivative in range(order):
+        #     print()
+        #     print()
+        #     expr = local_expression.diff(x, derivative) if derivative > 0 else local_expression
+        #     print(derivative, expr)
+        #     print()
+        #     print(expr.subs(s(x), s_expr).subs(x,-1).simplify())
+        # sys.exit(0)
+
     @property
     def weight_variables(self):
         return self.nodes.tolist()
