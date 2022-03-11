@@ -257,6 +257,9 @@ class HermiteInterpolatingPolynomial:
         #   M * (a_n, a_(n-1), ... , a_1, a_0) = (f(-1), f(1), f'(-1), f'(1), ..., f^(order)(-1), f^(order)(1))
         # where M is a matrix of values of (x**n, x**(n-1), ... , x, 1) for each equation.
 
+        # First, we work out polynomial coefficients on unit interval [-1, 1], then we determine
+        # the transformations onto an arbitrary interval [x0, x1].
+
         # Build matrix M based on values of p^(n) at x = -1 and 1.
         M = np.zeros((self.degree+1, self.degree+1), dtype=int)
         powers = np.flipud(np.arange(self.degree+1))
@@ -272,33 +275,42 @@ class HermiteInterpolatingPolynomial:
             M[derivative,:nonzero] = coefficients
 
         # Invert the matrix M to obtain the polynomial coefficients.
-        self.nodes = np.array([(w[0,i], w[1,i]) for i in range(order)]).T.reshape(-1)
-        Minv = np.linalg.inv(M)
-        self.coefficients = Minv.dot(self.nodes)
+        M = sp.Matrix(M)
+        Minv = M.inv()
+        self.weights = np.array([(w[0,i], w[1,i]) for i in range(order)]).T.reshape(-1)
+        self.coefficients = Minv*self.weights.reshape(-1,1)
 
         # Explicit expressions for the polynomial and its decomposition into weight functions.
         self.expression = self.coefficients.dot(x**powers)
-        self.weight_functions = [self.expression.diff(w) for w in self.nodes]
+        self.weight_functions = [self.expression.diff(w) for w in self.weights]
 
-        # print(self.expression)
-        # s = sp.Function('s')
-        # q = sp.IndexedBase('q')
-        # s_expr = self.expression.subs(w, q)
-        # print(s_expr)
-        # sys.exit(0)
-        # local_expression = self.expression.subs(x, s(x))
-        # for derivative in range(order):
-        #     print()
-        #     print()
-        #     expr = local_expression.diff(x, derivative) if derivative > 0 else local_expression
-        #     print(derivative, expr)
-        #     print()
-        #     print(expr.subs(s(x), s_expr).subs(x,-1).simplify())
-        # sys.exit(0)
+        # Transformations of node weights for mapping between [-1, 1] and [x0, x1].
+        self.x0, self.x1 = sp.symbols('x_0 x_1')
+        self.local_coordinate_transform = 2*(x - self.x0) / (self.x1 - self.x0) - 1
+        q = sp.IndexedBase('q') # temporary label for transformed weights
+        transformed_exp = self.expression.subs(w, q).subs(x, self.local_coordinate_transform)
+
+        self.transformed_weights = []
+        for derivative in range(order):
+            expr1 = self.expression.diff(x, derivative) if derivative > 0 else self.expression
+            expr2 = transformed_exp.diff(x, derivative) if derivative > 0 else transformed_exp
+            self.transformed_weights += [
+                (sp.solve(sp.Eq(expr1.subs(x, -1),
+                                expr2.subs(x, self.x0).simplify()),
+                          q[0, derivative])[0],
+                 sp.solve(sp.Eq(expr1.subs(x, 1),
+                                expr2.subs(x, self.x1).simplify()),
+                          q[1, derivative])[0])]
+
+        self.transformed_weights = np.array(self.transformed_weights).T.reshape(-1)
 
     @property
     def weight_variables(self):
-        return self.nodes.tolist()
+        return self.weights.tolist()
+
+    def transform_weights(self, x0, x1, weights):
+        w = sp.lambdify([self.x0, self.x1] + self.weight_variables, self.transformed_weights)
+        return np.array(w(x0, x1, *weights.T)).T
 
 class HermiteInterpolator:
     """An interpolator on the line interval [-1,1] which matches values and derivatives on the
@@ -440,23 +452,15 @@ class HermiteInterpolator:
     def __call__(self, x):#, derivative=0):
         # Determine which element each coordinate is in so we use the correct local polynomial.
         elements = self.find_element(x)
+        weights = np.hstack((self.weights[elements], self.weights[elements+1]))
+
         # Transform into the local coordinate bounded in [-1, 1] for each element:
         xleft, xright = self.x[elements], self.x[elements+1]
         local_coordinates = 2*(x - xleft) / (xright - xleft) - 1
+        weights = self.interpolating_polynomial.transform_weights(xleft, xright, weights)
 
-        element_weights = np.hstack((self.weights[elements], self.weights[elements+1]))
         f = sp.lambdify([self.local_variable] + self.local_node_variables, self.interpolating_polynomial.expression)
-        return f(local_coordinates, *element_weights.T)
-
-        # # Build Lagrange-polynomials which are our basis functions:
-        # u = np.zeros(x.shape)
-        # for w in self.weight_functions:
-        #     if derivative > 0: w = w(self.xvar).diff(self.xvar, derivative)
-        #     w = sp.lambdify([local_variable] + self.local_node_variables, w)
-        #     weights = self.weights[indices[elements]]
-        #     u += weights * w(x, *local_nodes)
-
-        # return u
+        return f(local_coordinates, *weights.T)
 
 class FiniteElement1dODESolver(LagrangeInterpolator):
     def __init__(self, equation, test_function, u, x, global_nodes, degree, u_guess=None,
@@ -679,9 +683,11 @@ if __name__ == '__main__':
     ypp = 20*x**3
     f = HermiteInterpolator(x, [y,yp,ypp])
     pl, = plt.plot(x, y, 'o', mfc='None')
-    x = np.linspace(0, 1, 1000)
+    x = np.linspace(x[0], x[-1], 1000)
     plt.plot(x, f(x), lw=0.5, c=pl.get_color())
     plt.plot(x, x**5, '--', lw=0.5)
+    # plt.figure()
+    # plt.plot(x, f(x)-x**5)
     plt.show()
 
     sys.exit(0)
