@@ -286,10 +286,12 @@ class HermiteInterpolatingPolynomial:
 
         # Transformations of node weights for mapping between [-1, 1] and [x0, x1].
         self.x0, self.x1 = sp.symbols('x_0 x_1')
-        self.local_coordinate_transform = 2*(x - self.x0) / (self.x1 - self.x0) - 1
+        self.coordinate_transform = 2*(x - self.x0) / (self.x1 - self.x0) - 1
         q = sp.IndexedBase('q') # temporary label for transformed weights
-        transformed_exp = self.expression.subs(w, q).subs(x, self.local_coordinate_transform)
+        transformed_exp = self.expression.subs(w, q).subs(x, self.coordinate_transform)
 
+        # Equate the transformed and untransformed expressions to obtain the transformations
+        # of the node weights:
         self.transformed_weights = []
         for derivative in range(order):
             expr1 = self.expression.diff(x, derivative) if derivative > 0 else self.expression
@@ -307,6 +309,10 @@ class HermiteInterpolatingPolynomial:
     @property
     def weight_variables(self):
         return self.weights.tolist()
+
+    def transform_coordinate(self, x0, x1, x):
+        s = sp.lambdify([self.x0, self.x1, self.x], self.coordinate_transform)
+        return s(x0, x1, x)
 
     def transform_weights(self, x0, x1, weights):
         w = sp.lambdify([self.x0, self.x1] + self.weight_variables, self.transformed_weights)
@@ -456,11 +462,11 @@ class HermiteInterpolator:
 
         # Transform into the local coordinate bounded in [-1, 1] for each element:
         xleft, xright = self.x[elements], self.x[elements+1]
-        local_coordinates = 2*(x - xleft) / (xright - xleft) - 1
+        s = self.interpolating_polynomial.transform_coordinate(xleft, xright, x)
         weights = self.interpolating_polynomial.transform_weights(xleft, xright, weights)
 
         f = sp.lambdify([self.local_variable] + self.local_node_variables, self.interpolating_polynomial.expression)
-        return f(local_coordinates, *weights.T)
+        return f(s, *weights.T)
 
 class FiniteElement1dODESolver(LagrangeInterpolator):
     def __init__(self, equation, test_function, u, x, global_nodes, degree, u_guess=None,
