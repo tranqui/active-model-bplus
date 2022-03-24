@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
-import sys
 import numpy as np
 from scipy.linalg import solve_banded
-from scipy.special import factorial
+from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
-from sympy.polys.specialpolys import interpolating_poly
+
+from functools import lru_cache
+
+from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
+import differentiate
 
 class Expression:
     arguments = []
@@ -46,6 +49,7 @@ class Expression:
         return expr
 
     @classmethod
+    @property
     def variables(cls):
         """Variables taken as arguments to expression in numerical evaluations (i.e. including
         parameters)."""
@@ -58,6 +62,7 @@ class Expression:
         return cls.diff(deriv)
 
     @classmethod
+    @lru_cache
     def compiled_function(cls, deriv=0):
         """Compile the function so that it can be numerically evaluated with native python
         structures, if not already done so for this expression.
@@ -68,13 +73,7 @@ class Expression:
         Args:
             deriv: order of derivative to compile into an evaluatable function
         """
-        try: return cls._compiled_function[deriv]
-        except:
-            func = sp.lambdify(cls.variables(), cls.numerical_implementation(deriv))
-            if '_compiled_function' not in cls.__dict__:
-                cls._compiled_function = dict()
-            cls._compiled_function[deriv] = func
-            return cls._compiled_function[deriv]
+        return sp.lambdify(cls.variables, cls.numerical_implementation(deriv))
 
     def __call__(self, *args, deriv=0):
         """Numerically evaluate expression."""
@@ -83,409 +82,473 @@ class Expression:
         with np.errstate(invalid='ignore'):
             return f(*args + self.parameter_values)
 
-# class DiffusionResidual(Expression):
-#     arguments = []
-#     parameters = [sp.Symbol('D')]
+class WeakFormProblem1d:
+    argument = sp.Symbol('x')
+    unknown_function = sp.Function('u')
+    basis_function = sp.Function('b')
 
-#     @classmethod
-#     def expression(cls):
-#         return u(x).diff(x,3)
+    parameters = []
 
-# sys.exit(0)
+    def __init__(self, *args):
+        """Instantiate problem with specific parameters.
 
-class LagrangeInterpolator:
-    """A simple 1d interpolator using Lagrange polynomials. This is convenient for
-    representing finite element solutions to ODEs."""
-
-    def __init__(self, global_nodes, weights, degree, x=None, u=None):
-        assert (len(global_nodes)-1)%degree == 0
-        assert len(global_nodes) == len(global_nodes)
-
-        self.global_nodes = global_nodes
-        self.weights = weights
-        self.degree = degree
-
-        if x is not None: self.interpolating_variable = x
-        else: self.interpolating_variable = sp.Symbol('x')
-        if u is not None: self.interpolating_function = u
-        else: self.interpolating_function = sp.Function('u')
-
-        self.local_node_variables = [sp.Symbol('x%d'%i, real=True, constant=True) for i in range(degree+1)]
-        self.local_node_weight_variables = [sp.Symbol('w%d'%i, real=True, constant=True) for i in range(degree+1)]
-        poly = interpolating_poly(degree+1, self.xvar,
-                                  self.local_node_variables, self.local_node_weight_variables)
-        self.local_polynomial = sp.Lambda(self.xvar, poly)
-
-        self.weight_functions = [sp.Lambda(self.xvar, self.local_polynomial(self.xvar).diff(w)) for w in self.local_node_weight_variables]
-
-    @property
-    def npoints(self):
-        return self.global_nodes.size
-
-    @property
-    def xvar(self):
-        """Short-hand for independent variable."""
-        return self.interpolating_variable
-
-    @property
-    def uvar(self):
-        """Short-hand for dependent variable."""
-        return self.interpolating_function
-
-    @property
-    def x(self):
-        """Short-hand for node positions."""
-        return self.global_nodes
-
-    @property
-    def w(self):
-        """Short-hand for node weights."""
-        return self.weights
-
-    @property
-    def nelements(self):
-        """Number of distinct elements over which we interpolate via local polynomials
-        (i.e. with finite support) of finite degree."""
-        return (len(self.global_nodes)-1) // degree
-
-    @property
-    def local_indices(self):
-        """Bookkeeping for local nodes y0,...,ydeg for each element."""
-        return [np.arange(self.npoints+1)[i::self.degree][:self.nelements] for i in range(self.degree+1)]
-
-    @property
-    def local_nodes(self):
-        """Positions of local nodes within each element.
-
-        Returns:
-            List of length degree+1. Each entry is a vector (of size nelements) containing
-            positions of the ith node.
+        Args:
+            *args: values of parameters in same order as parameters class variable.
         """
-        return [self.global_nodes[i] for i in self.local_indices]
+        assert len(args) is len(self.parameters)
+        self.parameter_values = args
 
+    @classmethod
     @property
-    def element_edges(self):
-        """Left edges of each element for binning coordinates to determine their element."""
-        return self.x[:-1:self.degree]
+    def x(cls):
+        return cls.argument
 
-    def find_element(self, x):
-        assert np.all(x >= self.x[0])
-        assert np.all(x <= self.x[-1])
-        elements = np.digitize(x, self.element_edges)-1
-        return elements
-
-    def element_weight_functions(self, element):
-        functions = []
-
-        lower_limit = self.global_nodes[element*self.degree]
-        upper_limit = self.global_nodes[(element+1)*self.degree]
-        for i in range(self.degree+1):
-            w = self.weight_functions[i]
-            for j in range(self.degree+1):
-                w = w.subs(self.local_node_variables[j], self.global_nodes[self.degree*element + j])
-
-            w = sp.Lambda( self.xvar, sp.Piecewise( (0, self.xvar < lower_limit),
-                                                    (0, self.xvar >= upper_limit),
-                                                    (w(self.xvar), True) ) )
-            functions += [w]
-
-        return functions
-
-    def weight_function(self, i):
-        local_index = i % self.degree
-        element = i // self.degree
-
-        if local_index > 0:
-            w = self.element_weight_functions(element)[local_index]
-        else:
-            left = self.element_weight_functions(element-1)[-1]
-            try: right = self.element_weight_functions(element)[0]
-            except: right = sp.Lambda(self.xvar, 0) # fails with boundary on far right, so we just set it to zero there
-            location = self.global_nodes[element*self.degree]
-            w = sp.Lambda( self.xvar, sp.Piecewise( (left(self.xvar), self.xvar < location),
-                                                    (right(self.xvar), True) ) )
-
-        return sp.lambdify(self.xvar, w(self.xvar))
-
-    def __call__(self, x, derivative=0):
-        # Determine which element each coordinate is in so we use the correct local polynomial.
-        elements = self.find_element(x)
-        local_nodes = [self.global_nodes[indices[elements]] for indices in self.local_indices]
-
-        # Build Lagrange-polynomials which are our basis functions:
-        u = np.zeros(x.shape)
-        for w, indices in zip(self.weight_functions, self.local_indices):
-            if derivative > 0: w = sp.Lambda(self.xvar, w(self.xvar).diff(self.xvar, derivative))
-            w = sp.lambdify([self.xvar] + self.local_node_variables, w(self.xvar))
-            weights = self.weights[indices[elements]]
-            u += weights * w(x, *local_nodes)
-
-        return u
-
-class HermiteInterpolatingPolynomial:
-    # def __init__(self, global_nodes, weights, degree, x=None, u=None):
-    #     assert (len(global_nodes)-1)%degree == 0
-    #     assert len(global_nodes) == len(global_nodes)
-
-    #     self.global_nodes = global_nodes
-    #     self.weights = weights
-    #     self.degree = degree
-
-    #     if x is not None: self.interpolating_variable = x
-    #     else: self.interpolating_variable = sp.Symbol('x')
-    #     if u is not None: self.interpolating_function = u
-    #     else: self.interpolating_function = sp.Function('u')
-
-    #     self.local_node_variables = [sp.Symbol('x%d'%i, real=True, constant=True) for i in range(degree+1)]
-    #     self.local_node_weight_variables = [sp.Symbol('w%d'%i, real=True, constant=True) for i in range(degree+1)]
-    #     poly = interpolating_poly(degree+1, self.xvar,
-    #                               self.local_node_variables, self.local_node_weight_variables)
-    #     self.local_polynomial = sp.Lambda(self.xvar, poly)
-
-    #     self.weight_functions = [sp.Lambda(self.xvar, self.local_polynomial(self.xvar).diff(w)) for w in self.local_node_weight_variables]
-
-    def __init__(self, order, x=sp.Symbol('x'), w=sp.IndexedBase('w')):
-        self.x = x
-        self.w = w
-
-        # Polynomial must have enough degrees of freedom to match constraints on bouth boundaries
-        # (which we call the "order" of the interpolation), so we must double the order.
-        self.degree = 2*order-1
-
-        # We work out coefficients for polynomial p = a_n*x**n + ... + a_0 by
-        # solving linear system:
-        #   M * (a_n, a_(n-1), ... , a_1, a_0) = (f(-1), f(1), f'(-1), f'(1), ..., f^(order)(-1), f^(order)(1))
-        # where M is a matrix of values of (x**n, x**(n-1), ... , x, 1) for each equation.
-
-        # First, we work out polynomial coefficients on unit interval [-1, 1], then we determine
-        # the transformations onto an arbitrary interval [x0, x1].
-
-        # Build matrix M based on values of p^(n) at x = -1 and 1.
-        M = np.zeros((self.degree+1, self.degree+1), dtype=int)
-        powers = np.flipud(np.arange(self.degree+1))
-        for derivative in range(order):
-            # Coefficients at x = 1:
-            nonzero = self.degree+1 - derivative
-            coefficients = factorial(powers[:nonzero]) / factorial(powers[:nonzero]-derivative)
-            M[derivative+order,:nonzero] = coefficients
-
-            # Coefficients at x = -1:
-            coefficients[::2] *= -1
-            if derivative%2 == 1: coefficients *= -1
-            M[derivative,:nonzero] = coefficients
-
-        # Invert the matrix M to obtain the polynomial coefficients.
-        M = sp.Matrix(M)
-        Minv = M.inv()
-        self.weights = np.array([(w[0,i], w[1,i]) for i in range(order)]).T.reshape(-1)
-        self.coefficients = Minv*self.weights.reshape(-1,1)
-
-        # Explicit expressions for the polynomial and its decomposition into weight functions.
-        self.expression = self.coefficients.dot(x**powers)
-        self.weight_functions = [self.expression.diff(w) for w in self.weights]
-
-        # Transformations of node weights for mapping between [-1, 1] and [x0, x1].
-        self.x0, self.x1 = sp.symbols('x_0 x_1')
-        self.coordinate_transform = 2*(x - self.x0) / (self.x1 - self.x0) - 1
-        q = sp.IndexedBase('q') # temporary label for transformed weights
-        transformed_exp = self.expression.subs(w, q).subs(x, self.coordinate_transform)
-
-        # Equate the transformed and untransformed expressions to obtain the transformations
-        # of the node weights:
-        self.transformed_weights = []
-        for derivative in range(order):
-            expr1 = self.expression.diff(x, derivative) if derivative > 0 else self.expression
-            expr2 = transformed_exp.diff(x, derivative) if derivative > 0 else transformed_exp
-            self.transformed_weights += [
-                (sp.solve(sp.Eq(expr1.subs(x, -1),
-                                expr2.subs(x, self.x0).simplify()),
-                          q[0, derivative])[0],
-                 sp.solve(sp.Eq(expr1.subs(x, 1),
-                                expr2.subs(x, self.x1).simplify()),
-                          q[1, derivative])[0])]
-
-        self.transformed_weights = np.array(self.transformed_weights).T.reshape(-1)
-
+    @classmethod
     @property
-    def weight_variables(self):
-        return self.weights.tolist()
+    def u(cls):
+        return cls.unknown_function
 
-    def transform_coordinate(self, x0, x1, x):
-        s = sp.lambdify([self.x0, self.x1, self.x], self.coordinate_transform)
-        return s(x0, x1, x)
-
-    def transform_weights(self, x0, x1, weights):
-        w = sp.lambdify([self.x0, self.x1] + self.weight_variables, self.transformed_weights)
-        return np.array(w(x0, x1, *weights.T)).T
-
-class HermiteInterpolator:
-    """An interpolator on the line interval [-1,1] which matches values and derivatives on the
-    boundaries. This is helpful for representing finite element solutions to ODEs where
-    continuity of derivatives is required."""
-
-    def __init__(self, nodes, weights):#, xvar=None, u=None):
-        try:
-            shape = weights.shape
-        except:
-            weights = np.vstack(weights).T
-            shape = weights.shape
-
-        num_nodes, self.order = shape
-        assert len(nodes) == num_nodes
-
-        self.nodes = nodes
-        self.weights = weights
-
-        self.interpolating_polynomial = HermiteInterpolatingPolynomial(self.order)
-        if True: return
-
-        sys.exit(0)
-
-        self.global_nodes = global_nodes
-        self.weights = weights
-        self.degree = degree
-
-        if x is not None: self.interpolating_variable = x
-        else: self.interpolating_variable = sp.Symbol('x')
-        if u is not None: self.interpolating_function = u
-        else: self.interpolating_function = sp.Function('u')
-
-        self.local_node_variables = [sp.Symbol('x%d'%i, real=True, constant=True) for i in range(degree+1)]
-        self.local_node_weight_variables = [sp.Symbol('w%d'%i, real=True, constant=True) for i in range(degree+1)]
-        poly = interpolating_poly(degree+1, self.xvar,
-                                  self.local_node_variables, self.local_node_weight_variables)
-        self.local_polynomial = sp.Lambda(self.xvar, poly)
-
-        self.weight_functions = [sp.Lambda(self.xvar, self.local_polynomial(self.xvar).diff(w)) for w in self.local_node_weight_variables]
-
+    @classmethod
     @property
-    def npoints(self):
-        return self.global_nodes.size
+    def b(cls):
+        return cls.basis_function
 
+    @classmethod
     @property
-    def nelements(self):
-        """Number of distinct elements over which we interpolate via local polynomials
-        (i.e. with finite support) of finite degree."""
-        return self.npoints - 1
+    def strong_form(cls):
+        raise NotImplementedError('strong form not defined for this problem!')
 
-    # @property
-    # def xvar(self):
-    #     """Short-hand for independent variable."""
-    #     return self.interpolating_polynomial.x
-
-    # @property
-    # def uvar(self):
-    #     """Short-hand for dependent variable."""
-    #     return self.interpolating_function
-
+    @classmethod
     @property
-    def x(self):
-        """Short-hand for node positions."""
-        return self.nodes
+    def weak_form(cls):
+        raise NotImplementedError('this problem has not been specified!')
 
+    @classmethod
     @property
-    def w(self):
-        """Short-hand for node weights."""
-        return self.weights
+    def boundary_conditions(cls):
+        raise NotImplementedError('boundary conditions have not been specified!')
 
-    # @property
-    # def local_indices(self):
-    #     """Bookkeeping for local nodes y0,...,ydeg for each element."""
-    #     return [np.arange(self.npoints+1)[i::self.degree][:self.nelements] for i in range(self.degree+1)]
-
-    # @property
-    # def local_nodes(self):
-    #     """Positions of local nodes within each element.
-
-    #     Returns:
-    #         List of length degree+1. Each entry is a vector (of size nelements) containing
-    #         positions of the ith node.
-    #     """
-    #     return [self.global_nodes[i] for i in self.local_indices]
-
-    # @property
-    # def element_edges(self):
-    #     """Left edges of each element for binning coordinates to determine their element."""
-    #     return self.x[:-1:self.degree]
-
-    def find_element(self, x):
-        assert np.all(x >= self.x[0])
-        assert np.all(x <= self.x[-1])
-        elements = np.digitize(x, self.x[:-1])-1
-        return elements
-
-    # def element_weight_functions(self, element):
-    #     functions = []
-
-    #     lower_limit = self.global_nodes[element*self.degree]
-    #     upper_limit = self.global_nodes[(element+1)*self.degree]
-    #     for i in range(self.degree+1):
-    #         w = self.weight_functions[i]
-    #         for j in range(self.degree+1):
-    #             w = w.subs(self.local_node_variables[j], self.global_nodes[self.degree*element + j])
-
-    #         w = sp.Lambda( self.xvar, sp.Piecewise( (0, self.xvar < lower_limit),
-    #                                                 (0, self.xvar >= upper_limit),
-    #                                                 (w(self.xvar), True) ) )
-    #         functions += [w]
-
-    #     return functions
-
-    # def weight_function(self, i):
-    #     local_index = i % self.degree
-    #     element = i // self.degree
-
-    #     if local_index > 0:
-    #         w = self.element_weight_functions(element)[local_index]
-    #     else:
-    #         left = self.element_weight_functions(element-1)[-1]
-    #         try: right = self.element_weight_functions(element)[0]
-    #         except: right = sp.Lambda(self.xvar, 0) # fails with boundary on far right, so we just set it to zero there
-    #         location = self.global_nodes[element*self.degree]
-    #         w = sp.Lambda( self.xvar, sp.Piecewise( (left(self.xvar), self.xvar < location),
-    #                                                 (right(self.xvar), True) ) )
-
-    #     return sp.lambdify(self.xvar, w(self.xvar))
-
+    @classmethod
     @property
-    def local_variable(self):
-        return self.interpolating_polynomial.x
+    @lru_cache
+    def analytic_solution(cls):
+        bcs = {expr.subs(cls.argument, point): value for point, expr, value in cls.boundary_conditions}
+        return sp.dsolve(cls.strong_form, cls.unknown_function(cls.argument), ics=bcs).rhs
+        #ics=cls.boundary_conditions).rhs
 
+    @classmethod
     @property
-    def local_node_variables(self):
-        return self.interpolating_polynomial.weight_variables
+    @lru_cache
+    def compiled_exact_solution(cls):
+        return sp.lambdify([cls.argument] + cls.parameters, cls.analytic_solution)
 
-    def __call__(self, x):#, derivative=0):
-        # Determine which element each coordinate is in so we use the correct local polynomial.
-        elements = self.find_element(x)
-        weights = np.hstack((self.weights[elements], self.weights[elements+1]))
+    def exact_solution(self, x):
+        return self.compiled_exact_solution(x, *self.parameter_values)
 
-        # Transform into the local coordinate bounded in [-1, 1] for each element:
-        xleft, xright = self.x[elements], self.x[elements+1]
-        s = self.interpolating_polynomial.transform_coordinate(xleft, xright, x)
-        weights = self.interpolating_polynomial.transform_weights(xleft, xright, weights)
+    @classmethod
+    def elemental_variables(cls, order=1):
+        """Variables taken as arguments to expression in numerical evaluations (i.e. including
+        parameters)."""
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
+        return [polynomial.x0, polynomial.x1] + polynomial.weight_variables + cls.parameters
 
-        f = sp.lambdify([self.local_variable] + self.local_node_variables, self.interpolating_polynomial.expression)
-        return f(s, *weights.T)
+    @classmethod
+    @lru_cache
+    def boundary_condition_expressions(cls, order=1):
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
+        local_coordinate = sp.Function('s')
 
-class FiniteElement1dODESolver(LagrangeInterpolator):
-    def __init__(self, equation, test_function, u, x, global_nodes, degree, u_guess=None,
+        expressions = []
+        for point, lhs, rhs in cls.boundary_conditions:
+            expression = lhs - rhs
+
+            # Substitute in temporary function for the variable so we can transform to
+            # the local coordinate later.
+            expression = expression.subs(cls.unknown_function(cls.argument),
+                                         cls.unknown_function(local_coordinate(cls.argument)))
+
+            # Substitute in local expression for function in this element.
+            expression = expression.subs(cls.unknown_function,
+                                         sp.Lambda(cls.argument, polynomial.expression))
+
+            # Transform to [-1, 1] interval:
+            expression = expression.subs(local_coordinate,
+                                         sp.Lambda(cls.argument,
+                                                   polynomial.coordinate_transform)).doit()
+            weight_replacements = {w1: w2 for w1, w2 in zip(polynomial.weight_variables,
+                                                            polynomial.transformed_weights)}
+            expression = expression.subs(weight_replacements)
+            expression = expression.subs(cls.argument, point)
+
+            expressions += [(point, expression)]
+
+        return expressions
+
+    @classmethod
+    @lru_cache
+    def compiled_boundary_condition_expressions(cls, order=1, *args, **kwargs):
+        expressions = cls.boundary_condition_expressions(order, *args, **kwargs)
+        compiled_expressions = []
+
+        arguments = cls.elemental_variables(order)
+        for point, expression in expressions:
+            compiled_expressions += [(point, sp.lambdify(arguments, expression))]
+        return compiled_expressions
+
+    @classmethod
+    @lru_cache
+    def boundary_condition_jacobians(cls, order=1):
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
+        J = []
+        for point, expression in cls.boundary_condition_expressions(order):
+            J += [(point, [expression.diff(w).doit() for w in polynomial.weight_variables])]
+        return J
+
+    @classmethod
+    @lru_cache
+    def compiled_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
+        jacobians = cls.boundary_condition_jacobians(order, *args, **kwargs)
+        compiled_jacobians = []
+        for point, row in jacobians:
+            compiled_row = []
+            for expression in row:
+                compiled_row += [sp.lambdify(cls.elemental_variables(order), expression)]
+            compiled_jacobians += [(point, compiled_row)]
+        return compiled_jacobians
+
+    @classmethod
+    @lru_cache
+    def elemental_residuals(cls, order=1):
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
+
+        residuals = []
+        basic_integrand = cls.weak_form.subs(cls.unknown_function,
+                                             sp.Lambda(cls.argument, polynomial.expression)).doit()
+
+        # Transform to [-1, 1] interval:
+        basic_integrand = basic_integrand.subs(polynomial.x,
+                                               polynomial.inverse_coordinate_transform)
+        weight_replacements = {w1: w2 for w1, w2 in zip(polynomial.weight_variables,
+                                                        polynomial.transformed_weights)}
+        basic_integrand = basic_integrand.subs(weight_replacements)
+        basic_integrand *= polynomial.inverse_coordinate_transform.diff(polynomial.x)
+
+        for i,w in enumerate(polynomial.weight_functions):
+            specific_integrand = basic_integrand.subs(cls.basis_function,
+                                                      sp.Lambda(cls.argument, w)).doit()
+            specific_integrand = specific_integrand.subs(weight_replacements)
+
+            # We use a fixed-order Gaussian quadrature rule for the integration:
+            roots, weights = _cached_roots_legendre(2*order+1)
+            result = sum([w*specific_integrand.subs(cls.argument, p).doit() for p, w in zip(roots, weights)])
+
+            residuals += [result]
+
+        return residuals
+
+    @classmethod
+    @lru_cache
+    def compiled_elemental_residuals(cls, order, *args, **kwargs):
+        residuals = cls.elemental_residuals(order, *args, **kwargs)
+        compiled_residuals = []
+        for expression in residuals:
+            compiled_residuals += [sp.lambdify(cls.elemental_variables(order), expression)]
+        return compiled_residuals
+
+    def residuals(self, nodes, weights, *args, **kwargs):
+        nelements, order = weights.shape
+        nelements -= 1
+
+        R = np.zeros(weights.shape)
+
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, self.argument)
+        variables = polynomial.weight_variables
+        functions = self.compiled_elemental_residuals(order, *args, **kwargs)
+
+        xleft, xright = nodes[:-1], nodes[1:]
+        w = np.hstack((weights[:-1], weights[1:]))
+
+        for var, func in zip(variables, functions):
+            r = func(xleft, xright, *w.T, *self.parameter_values)
+
+            boundary, deriv = var.indices
+            if boundary == 0: R[:-1,deriv] += r
+            elif boundary == 1: R[1:,deriv] += r
+            else: raise RuntimeError('unknown variable indices during residual calculation!')
+
+        # Evaluate residual contributions from boundary conditions.
+        element_edges = nodes[:-1]
+        bcs = {}
+        for point, func in self.compiled_boundary_condition_expressions(order):
+            # Evaluate boundary condition on the local element
+            element = np.digitize(point, element_edges)-1
+            xleft, xright = nodes[element:element+2]
+            value = func(xleft, xright, *w[element], *self.parameter_values)
+
+            # We will place the boundary condition on a residual entry for the closest node,
+            # because it should depend on local weights there.
+            closest_node = np.abs(nodes - point).argmin()
+            try: bcs[closest_node] += [value]
+            except: bcs[closest_node] = [value]
+
+        # Make sure boundary conditions fall on distinct residual entries for the selected nodes.
+        for node, conditions in bcs.items():
+            for i, value in enumerate(conditions):
+                R[node,i] = value
+
+        return R.reshape(-1)
+
+    @classmethod
+    @lru_cache
+    def elemental_jacobians(cls, order=1):
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
+        J = []
+        for R in cls.elemental_residuals(order):
+            J += [[R.diff(w).doit() for w in polynomial.weight_variables]]
+        return J
+
+    @classmethod
+    @lru_cache
+    def compiled_elemental_jacobians(cls, order, *args, **kwargs):
+        jacobians = cls.elemental_jacobians(order, *args, **kwargs)
+        compiled_jacobians = []
+        for row in jacobians:
+            compiled_row = []
+            for expression in row:
+                compiled_row += [sp.lambdify(cls.elemental_variables(order), expression)]
+            compiled_jacobians += [compiled_row]
+        return compiled_jacobians
+
+    def jacobian(self, nodes, weights, *args, **kwargs):
+        nelements, order = weights.shape
+        nelements -= 1
+
+        #J = np.zeros((nelements+1, order, 2*(order+1)+1))
+        J = np.zeros((2*(order+1)+1, nelements+1, order))
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order, self.argument)
+        variables = polynomial.weight_variables
+        functions = self.compiled_elemental_jacobians(order, *args, **kwargs)
+
+        xleft, xright = nodes[:-1], nodes[1:]
+        w = np.hstack((weights[:-1], weights[1:]))
+
+        for var, row in zip(variables, functions):
+            boundary, deriv = var.indices
+
+            for i, func in enumerate(row):
+                i = len(J)-2-i
+                j = func(xleft, xright, *w.T, *self.parameter_values)
+                if boundary == 0: J[i-order,:-1,deriv] += j
+                elif boundary == 1: J[i,1:,deriv] += j
+                else: raise RuntimeError('unknown variable indices during residual calculation!')
+
+        J = J.reshape(len(J), -1)
+
+        # Apply boundary conditions.
+        element_edges = nodes[:-1]
+        bcs = {}
+        for point, row in self.compiled_boundary_condition_jacobians(order):
+            element = np.digitize(point, element_edges)-1
+            closest_node = np.abs(nodes - point).argmin()
+            xleft, xright = nodes[element:element+2]
+            values = np.flipud([func(xleft, xright, *w[element], *self.parameter_values) for func in row])
+
+            starting_row = len(J)-1-len(variables)
+            boundary_on_left = closest_node == element
+            if boundary_on_left: starting_row -= order
+
+            entry = np.zeros(len(J))
+            entry[starting_row:starting_row+len(values)] = values
+            try: bcs[closest_node] += [entry]
+            except: bcs[closest_node] = [entry]
+
+        # Ensure boundary conditions are placed on distinct rows
+        for node, conditions in bcs.items():
+            for c, entry in enumerate(conditions):
+                index = node*order + c
+                J[:,index] = entry
+
+        # Each column currently contains the Jacobian entries for each residual, but
+        # we have to shift these to correspond to the matrix format needed by
+        # scipy.linalg.solve_banded.
+
+        # Shift columns for each type of local weight so that they align with their own equations.
+        for c in range(1,order):
+            J[:,c::order] = np.roll(J[:,c::order], c, axis=0)
+
+        # Shift the elements for each equation so elements of a single equation are stored
+        # diagonally (cf. scipy.linalg.solve_banded which documents the matrix storage format).
+        for c in range(len(J)):
+            J[c] = np.roll(J[c], len(J)//2-c)
+
+        return J
+
+    def numerical_jacobian(self, nodes, weights, dx=1e-4):
+        from differentiate import gradient
+        f = lambda w: self.residuals(nodes, w)
+        return gradient(f, weights, dx=dx).T
+
+    def full_jacobian(self, J):
+        """Convert banded jacobian into full square matrix. Useful for testing."""
+        u = (J.shape[0]-1) // 2
+        nnodes = J.shape[1]
+        Jfull = np.zeros((nnodes, nnodes))
+
+        #u = order
+        for i in range(nnodes):
+            for j in range(nnodes):
+                if (u + i - j) < 0 or (u + i - j) >= len(J): continue
+                Jfull[i, j] = J[u + i - j, j]
+        return Jfull
+
+    def solve(self, nodes, weights):
+        nelements, order = weights.shape
+        nelements -= 1
+
+        R = self.residuals(nodes, weights)
+
+        iters = 0
+        while np.linalg.norm(R) > 1e-6 and iters < 5:
+            print(iters, R)
+            J = self.jacobian(nodes, weights)
+
+            # full = self.full_jacobian(J)
+            # num = self.numerical_jacobian(self.weights)
+            # print(full)
+            # print(num)
+            # print(full-num)
+            # assert np.allclose(full, num)
+
+            weights = weights + solve_banded((order+1, order+1), J, -R).reshape(weights.shape)
+            R = self.residuals(nodes, weights)
+            iters += 1
+
+        print()
+        print(nodes)
+        print(weights)
+        print(R)
+        return weights
+
+class HeatEquation(WeakFormProblem1d):
+    parameters = []
+
+    @classmethod
+    @property
+    def strong_form(cls):
+        x, u, b = cls.x, cls.u, cls.b
+        return u(x).diff(x,2)
+
+    @classmethod
+    @property
+    def weak_form(cls):
+        x, u, b = cls.x, cls.u, cls.b
+        return -u(x).diff()*b(x).diff()
+
+    @classmethod
+    @property
+    def boundary_conditions(cls):
+        return {(0, cls.u(cls.x), 1), (1, cls.u(cls.x), 0)}
+
+class DummyProblem(WeakFormProblem1d):
+    a = sp.Symbol('a')
+    parameters = [a]
+
+    @classmethod
+    @property
+    def strong_form(cls):
+        x, u, b, a = cls.x, cls.u, cls.b, cls.a
+        return u(x).diff(x,2) #+ u(x) #a#*u(x)
+
+    @classmethod
+    @property
+    def weak_form(cls):
+        x, u, b, a = cls.x, cls.u, cls.b, cls.a
+        #return u(x).diff(x,2)*b(x).diff(x,2) + a*u(x)*b(x)
+        return -u(x).diff(x,1)*b(x).diff(x,1) #a*b(x)#*u(x)*b(x)
+        #return u(x).diff(x,2)*b(x)#.diff(x,1) #a*b(x)#*u(x)*b(x)
+
+    @classmethod
+    @property
+    def boundary_conditions(cls):
+        x, u, b, a = cls.x, cls.u, cls.b, cls.a
+        up = lambda x2: u(x).diff(x).subs(x, x2)
+        return {(0, u(x), 1), (1, up(x), -1)}
+        #return {(0, u(x), 1), (0, up(x), 0), (1, u(x), 0), (1, up(x), 0)}
+        #return {u(0): 1, up(0): 0, u(1): 0, up(1): 0}
+        #return {u(0): 1, u(1): 0}
+
+# print(HeatEquation.elemental_residuals(1))
+# print(HeatEquation.elemental_jacobian(1))
+# print()
+# print(HeatEquation.elemental_residuals(2))
+# print()
+# print(HeatEquation.elemental_jacobian(2))
+
+p = DummyProblem(0)
+print(p.analytic_solution)
+#import sys; sys.exit(0)
+#p = HeatEquation()
+x = np.linspace(0, 1, 7)
+w = np.ones((len(x), 1))
+#print(p.elemental_residuals(2))
+np.set_printoptions(4, suppress=True, linewidth=10000)
+#print(p.residuals(x, w))
+
+J1 = p.numerical_jacobian(x, w)
+J = p.jacobian(x, w)
+J2 = p.full_jacobian(J)
+
+print(J1)
+print()
+print(J2)
+print()
+print(J1-J2)
+#import sys; sys.exit(0)
+
+import matplotlib.pyplot as plt
+
+w = p.solve(x, w)
+f = HermiteInterpolator(x, w)
+pl, = plt.plot(x, w[:,0], 'o', mfc='None')
+
+xx = np.linspace(np.min(x), np.max(x), 1000)
+plt.plot(xx, f(xx), '-', c=pl.get_color())
+try: plt.plot(xx, p.exact_solution(xx), '--')
+except: plt.plot(xx, [p.exact_solution(xx)]*len(xx), '--')
+plt.show()
+
+#print()
+#print(J)
+
+#print()
+#print(HeatEquation.residuals(4))
+
+#print()
+#print(DummyProblem.residuals(2))
+import sys; sys.exit(0)
+
+class FiniteElement1dODESolver(HermiteInterpolator):
+    def __init__(self, problem, nodes, order=1, weights_guess=None,
                  integrate_analytically=False, print_updates=None):
         """
         Args:
             equation: weak-form integrand for ODE we are solving.
             test_function: symbol for test function specified in equation
         """
-        if u_guess is None: u_guess = np.zeros(global_nodes.shape)
-        super().__init__(global_nodes, u_guess, degree, x=x, u=u)
-        self.equation = equation
-        self.test_function = test_function
+        if weights_guess is None:
+            weights_guess = np.zeros((nodes.size,order))
+        else:
+            assert weights_guess.shape == (len(nodes), order)
+
+        super().__init__(nodes, weights_guess)
+        self.problem = problem
+
         self.integrate_analytically = integrate_analytically
         self.print_updates = print_updates
 
         if self.print_updates:
-            R = self.global_residuals(self.weights)
-            J = self.global_jacobian(self.weights)
+            R = self.problem.residuals(self.weights)
+            J = self.problem.jacobian(self.weights)
 
             self.print_updates.write('iterating to solve ODE...\n')
             np.set_printoptions(4, suppress=True, linewidth=10000)
@@ -493,11 +556,11 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
             self.print_updates.write(repr(R) + '\n')
             self.print_updates.write(repr(self.full_jacobian(J)) + '\n')
 
-        R = self.global_residuals(self.weights)
+        R = self.residuals(self.weights)
         iters = 0
         while np.linalg.norm(R) > 1e-6 and iters < 5:
             print(iters, R)
-            J = self.global_jacobian(self.weights)
+            J = self.problem.jacobian(self.weights)
 
             full = self.full_jacobian(J)
             num = self.numerical_jacobian(self.weights)
@@ -506,8 +569,8 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
             print(full-num)
             assert np.allclose(full, num)
 
-            self.weights += solve_banded((self.degree, self.degree), J, -R)
-            R = self.global_residuals(self.weights)
+            self.weights += solve_banded((self.degree, self.degree), J, -R).reshape(self.weights.shape)
+            R = self.problem.residuals(self.weights)
             iters += 1
 
         if self.print_updates:
@@ -515,106 +578,17 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
 
         #assert np.allclose(self.global_residuals(self.weights),
         #                   np.zeros(self.weights.shape))
+        sys.exit(0)
 
     @property
     def element_integration_limits(self):
         return self.xvar, self.local_node_variables[0], self.local_node_variables[-1]
 
-    @property
-    def local_residual_expressions(self):
-        """Explicit expressions the contributions to residuals from nodes within
-        a single element."""
-        try: return self._local_residual_expressions
-        except: pass
-
-        self._local_residual_expressions = []
-
-        residual_integrand = self.equation.subs(self.uvar, self.local_polynomial).doit()
-
-        for i,w in enumerate(self.weight_functions):
-            specific_integrand = residual_integrand.subs(self.test_function, w).doit()
-
-            if self.integrate_analytically:
-                if self.print_updates:
-                    self.print_updates.write('integrating residual %d/%d...\n' % (i+1, self.degree+1))
-                specific_integrand = specific_integrand.expand().collect(self.xvar)
-                result = sp.integrate(specific_integrand, self.element_integration_limits).doit()
-                if self.print_updates:
-                    self.print_updates.write('simplifying residual %d/%d...\n' % (i+1, self.degree+1))
-                result = result.simplify()
-
-            else:
-                if self.print_updates:
-                    self.print_updates.write('integrating residual %d/%d...\n' % (i+1, self.degree+1))
-
-                x, a, b = self.element_integration_limits
-                # Change limits of integration in x from [a,b] to [-1,1].
-                substitution = a + (b-a)*(1+x)/2
-                specific_integrand = specific_integrand.subs(x, substitution).doit()
-                specific_integrand *= substitution.diff(x)
-
-                # We use a fixed-order Gaussian quadrature rule for the integration:
-                from scipy.integrate._quadrature import _cached_roots_legendre
-                roots, weights = _cached_roots_legendre(2*self.degree+1)
-                result = sum([w*specific_integrand.subs(x, p).doit() for p, w in zip(roots, weights)])
-
-                # if self.print_updates:
-                #     self.print_updates.write('simplifying residual %d/%d...\n' % (i+1, self.degree+1))
-                # result = result.simplify()
-
-            self._local_residual_expressions += [result]
-
-        return self._local_residual_expressions
-
-    @property
-    def local_jacobian_expressions(self):
-        """Explicit expressions for the jacobian entries corresponding to a single element."""
-        try: return self._local_jacobian_expressions
-        except: pass
-
-        self._local_jacobian_expressions = []
-
-        for i,R in enumerate(self.local_residual_expressions):
-            if self.print_updates:
-                self.print_updates.write('finding jacobian entries for local node %d/%d...\n' % (i+1, self.degree+1))
-            self._local_jacobian_expressions += [[R.diff(w).doit() for w in self.local_node_weight_variables]]
-
-            if self.integrate_analytically:
-                if self.print_updates:
-                    self.print_updates.write('simplifying jacobian entries for local node %d/%d...\n' % (i+1, self.degree+1))
-                self._local_jacobian_expressions = [[result.simplify() for result in entries] for entries in self._local_jacobian_expressions]
-
-        return self._local_jacobian_expressions
-
     def compile_function(self, expr):
         return sp.lambdify(self.local_node_variables + self.local_node_weight_variables, expr)
 
-    @property
-    def local_residuals(self):
-        try: return self._local_residuals
-        except: pass
-
-        if self.print_updates:
-            self.local_residual_expressions # call so updates there occur first
-            self.print_updates.write('compiling residuals...\n')
-
-        self._local_residuals = [self.compile_function(expr) for expr in self.local_residual_expressions]
-        return self._local_residuals
-
-    @property
-    def local_jacobians(self):
-        try: return self._local_jacobians
-        except: pass
-
-        if self.print_updates:
-            self.local_jacobian_expressions # call so updates there occur first
-            self.print_updates.write('compiling jacobians...\n')
-
-        self._local_jacobians = [[self.compile_function(expr) for expr in row] for row in self.local_jacobian_expressions]
-        return self._local_jacobians
-
-    def global_residuals(self, weights):
-        R = np.zeros(self.global_nodes.shape)
+    def residuals(self, weights):
+        R = np.zeros(self.nodes.shape)
         local_weights = [weights[i] for i in self.local_indices]
         for res, nodes in zip(self.local_residuals, self.local_indices):
             R[nodes] += res(*self.local_nodes, *local_weights)
@@ -624,7 +598,7 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
         R[-1] = weights[-1]
         return R
 
-    def global_jacobian(self, weights):
+    def jacobian(self, weights):
         J = np.zeros((2*self.degree+1, len(self.global_nodes)))
         diagonal = self.degree
         local_weights = [weights[i] for i in self.local_indices]
@@ -654,8 +628,7 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
         return J
 
     def numerical_jacobian(self, weights):
-        from cripes.differentiate import gradient
-        return gradient(self.global_residuals, weights, dx=1e-4).T
+        return gradient(self.residuals, weights, dx=1e-4).T
 
     def full_jacobian(self, J):
         """Convert banded jacobian into full square matrix. Useful for testing."""
@@ -668,75 +641,62 @@ class FiniteElement1dODESolver(LagrangeInterpolator):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+    import sys
 
     print_updates = sys.stderr
     #print_updates = None
 
-    plt.figure()
-    poly = HermiteInterpolatingPolynomial(2)
-    x = np.linspace(-1, 1, 1000)
-    for w in poly.weight_functions:
-        f = sp.lambdify(poly.x, w)
-        plt.plot(x, f(x))
-    #plt.show()
-
-    #sys.exit(0)
-
-    plt.figure()
-    x = np.linspace(0, 1, 2)
-    y = x**5
-    yp = 5*x**4
-    ypp = 20*x**3
-    f = HermiteInterpolator(x, [y,yp,ypp])
-    pl, = plt.plot(x, y, 'o', mfc='None')
-    x = np.linspace(x[0], x[-1], 1000)
-    plt.plot(x, f(x), lw=0.5, c=pl.get_color())
-    plt.plot(x, x**5, '--', lw=0.5)
     # plt.figure()
-    # plt.plot(x, f(x)-x**5)
-    plt.show()
+    # poly = HermiteInterpolatingPolynomial(2)
+    # x = np.linspace(-1, 1, 1000)
+    # for w in poly.weight_functions:
+    #     f = sp.lambdify(poly.x, w)
+    #     plt.plot(x, f(x))
+    # #plt.show()
 
-    sys.exit(0)
+    # #sys.exit(0)
 
-    degree = 2
-    nelements = 3
+    # plt.figure()
+    # x = np.linspace(0, 1, 2)
+    # y = x**5
+    # yp = 5*x**4
+    # ypp = 20*x**3
+    # f = HermiteInterpolator(x, [y,yp,ypp])
+    # pl, = plt.plot(x, y, 'o', mfc='None')
+    # x = np.linspace(x[0], x[-1], 1000)
+    # plt.plot(x, f(x), lw=0.5, c=pl.get_color())
+    # plt.plot(x, x**5, '--', lw=0.5)
+    # # plt.figure()
+    # # plt.plot(x, f(x)-x**5)
+    # plt.show()
+
+    # sys.exit(0)
+
+    #degree = 2
+    #nelements = 3
     #xmax = nelements*degree
-    xmax = 1
-    nodes = np.linspace(0, xmax, 1+nelements*degree)
-
-    a = sp.Symbol('a')
-    x = sp.Symbol('x')
-    u = sp.Function('u')
-    w = sp.Function('w')
-
-    #f = -0.25*(0.5*u(x)**2 - 0.25*u(x)**4)
-    #eqn = f.diff(u(x),2)*u(x).diff() - u(x).diff(x,3)
-
-    eqn = u(x).diff(x,2) + u(x) #+ 8
-    solution = sp.dsolve(eqn, u(x), ics={u(0): 1, u(xmax): 0})
-    #solution = sp.dsolve(eqn, u(x), ics={u(0): 1, u(xmax): 0})
-    #weak_form = -0.5*(u(x).diff(x,2)*w(x).diff() - u(x).diff(x,1)*w(x).diff(x,2)) + 8*w(x)
-    weak_form = -u(x).diff(x,1)*w(x).diff(x) + u(x)*w(x) #+ u(x)*w(x) + 8*w(x)
-    exact = sp.lambdify(x, solution.rhs)
+    #xmax = 1
 
     #print(sp.dsolve(eqn, u(x), ics={u(-sp.oo): 1, u(0): 0.5, u(sp.oo): 0}))
-    print(eqn)
-    print(solution)
+    #print(eqn)
+    #print(solution)
     #weak_form = -(f.diff(u(x)) - u(x).diff(x,2)) * w(x).diff()
     #weak_form = u(x).diff(x,2) * w(x).diff()
-    print(weak_form)
+    #print(weak_form)
     #sys.exit(0)
     #print(eqn.subs(u(x), sp.tanh(x/a)).doit().simplify())
-    u_guess = np.zeros(len(nodes))
-    solver = FiniteElement1dODESolver(weak_form, w, u, x, nodes, degree, u_guess, print_updates=print_updates)
+    #problem = DummyProblem(1)
+    problem = HeatEquation()
+    nodes = np.linspace(0, 1, 100)
+    #solver = FiniteElement1dODESolver(problem, nodes, order=2, print_updates=print_updates)
 
-    import matplotlib.pyplot as plt
-    pl, = plt.plot(solver.x, solver.w, 'o', mfc='None', label='central nodes')
-    plt.plot(solver.x[::degree], solver.w[::degree], 'o', c=pl.get_color(), label='end nodes')
+    #pl, = plt.plot(solver.x, solver.w, 'o', mfc='None', label='central nodes')
+    #plt.plot(solver.x[::degree], solver.w[::degree], 'o', c=pl.get_color(), label='end nodes')
     x = np.linspace(0, nodes[-1], 1000)
-    plt.plot(x, solver(x), '-', c=pl.get_color(), zorder=-10, label='FE solution')
+    #plt.plot(x, solver(x), '-', c=pl.get_color(), zorder=-10, label='FE solution')
 
-    plt.plot(x, exact(x), '--', c=pl.get_color(), zorder=-10, label='exact solution')
+    exact = sp.lambdify(problem.argument, problem.exact_solution)
+    plt.plot(x, exact(x), '--')#, c=pl.get_color(), zorder=-10, label='exact solution')
     plt.legend(loc='best')
 
     plt.show()
