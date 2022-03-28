@@ -208,15 +208,17 @@ class WeakFormProblem1d:
     def natural_boundary_condition_jacobians(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
         J = []
-        for boundary in cls.natural_boundary_condition_expressions(order):
-            J += [[e.diff(w).doit() for w in polynomial.weight_variables] for e in boundary]
+        left, right = cls.natural_boundary_condition_expressions(order)
+        for expressions in [left, right]:
+            J += [[[e.diff(w).doit() for w in polynomial.weight_variables] for e in expressions]]
         return J
 
     @classmethod
     @lru_cache
     def compiled_natural_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         compiled_jacobians = []
-        for jacobians in cls.natural_boundary_condition_jacobians(order, *args, **kwargs):
+        left, right = cls.natural_boundary_condition_jacobians(order, *args, **kwargs)
+        for jacobians in [left, right]:
             boundary_jacobians = []
             for row in jacobians:
                 compiled_row = []
@@ -359,13 +361,12 @@ class WeakFormProblem1d:
             elif boundary == 1: R[1:,deriv] += r
             else: raise RuntimeError('unknown variable indices during residual calculation!')
 
-        # # Apply natural boundary conditions needed to make weak form valid (from e.g. integration
-        # # by parts).
-        # left, right = self.compiled_natural_boundary_condition_expressions(order)
-        # for c, (l, r) in enumerate(zip(left, right)):
-        #     print(c, R[0], R[-1], xleft[0], xright[-1])
-        #     R[0,c] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
-        #     R[-1,c] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
+        # Apply natural boundary conditions needed to make weak form valid (these conditions
+        # arise from surface terms left over from e.g. integration by parts).
+        left, right = self.compiled_natural_boundary_condition_expressions(order)
+        for c, (l, r) in enumerate(zip(left, right)):
+            R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
+            R[-order + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
 
         # Evaluate residual contributions from specific boundary conditions.
         element_edges = nodes[:-1]
@@ -414,7 +415,6 @@ class WeakFormProblem1d:
         nelements, order = weights.shape
         nelements -= 1
 
-        #J = np.zeros((nelements+1, order, 2*(order+1)+1))
         J = np.zeros((2*(order+1)+1, nelements+1, order))
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, self.argument)
         variables = polynomial.weight_variables
@@ -434,6 +434,20 @@ class WeakFormProblem1d:
                 else: raise RuntimeError('unknown variable indices during residual calculation!')
 
         J = J.reshape(len(J), -1)
+
+        # Apply natural boundary conditions needed to make weak form valid (these conditions
+        # arise from surface terms left over from e.g. integration by parts).
+        left, right = self.compiled_natural_boundary_condition_jacobians(order)
+        for c, (l, r) in enumerate(zip(left, right)):
+            l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
+            r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
+
+            starting_row = len(J)-1-len(variables)
+            eqnl = c
+            eqnr = -2*order+c
+            J[starting_row:starting_row+len(l), eqnr] += r
+            starting_row -= order
+            J[starting_row:starting_row+len(r), eqnl] += l
 
         # Apply boundary conditions.
         element_edges = nodes[:-1]
@@ -548,16 +562,16 @@ class DummyProblem(WeakFormProblem1d):
     @property
     def strong_form(cls):
         x, u, b, a = cls.x, cls.u, cls.b, cls.a
-        return u(x).diff(x,4)
-        #return u(x).diff(x,2) #a#*u(x)
+        #return u(x).diff(x,4)
+        return u(x).diff(x,2) #+ a #*u(x)
 
     @classmethod
     @property
     def weak_form(cls):
         x, u, b, a = cls.x, cls.u, cls.b, cls.a
         #return u(x).diff(x,2)*b(x).diff(x,2) + a*u(x)*b(x)
-        return u(x).diff(x,2)*b(x).diff(x,2)
-        #return -u(x).diff(x)*b(x).diff(x) #*u(x)*b(x)
+        #return u(x).diff(x,2)*b(x).diff(x,2)
+        return -u(x).diff(x)*b(x).diff(x) #+ u(x)*b(x)
         #return u(x).diff(x,2)*b(x)#.diff(x,1) #a*b(x)#*u(x)*b(x)
 
     @classmethod
@@ -572,8 +586,8 @@ class DummyProblem(WeakFormProblem1d):
         x, u, b, a = cls.x, cls.u, cls.b, cls.a
         up = lambda x2: u(x).diff(x).subs(x, x2)
         #return {(0, u(x), 1), (1, up(x), -1)}
-        return {(0, u(x), 1), (0, up(x), 0), (1, u(x), 0), (1, up(x), 0)}
-        #return {(0, u(x), 1), (0, up(x), -1)}
+        #return {(0, u(x), 1), (0, up(x), 0), (1, u(x), 0), (1, up(x), 0)}
+        return {(0, u(x), 1), (0, up(x), -1)}
         #return {u(0): 1, up(0): 0, u(1): 0, up(1): 0}
         #return {u(0): 1, u(1): 0}
 
@@ -588,7 +602,7 @@ p = DummyProblem(1)
 print(p.analytic_solution)
 #import sys; sys.exit(0)
 #p = HeatEquation()
-x = np.linspace(0, 1, 25)
+x = np.linspace(0, 1, 5)
 w = np.ones((len(x), 2))
 #print(p.elemental_residuals(2))
 np.set_printoptions(4, suppress=True, linewidth=10000)
