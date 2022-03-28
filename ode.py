@@ -126,7 +126,7 @@ class WeakFormProblem1d:
     @classmethod
     @property
     def natural_boundary_condition(cls):
-        return 0
+        return
 
     @classmethod
     @property
@@ -162,34 +162,16 @@ class WeakFormProblem1d:
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
 
         expressions = []
-        basic_expression = cls.natural_boundary_condition
+        basic_expression = cls.natural_boundary_condition.subs(cls.unknown_function,
+                                                               sp.Lambda(cls.argument, polynomial.general_expression))
 
-        # Substitute in temporary function for the variable so we can transform to
-        # the local coordinate later.
-        local_coordinate = sp.Function('s')
-        basic_expression = basic_expression.subs(cls.unknown_function(cls.argument),
-                                               cls.unknown_function(local_coordinate(cls.argument)))
-
-        # Substitute in local expression for function in this element.
-        basic_expression = basic_expression.subs(cls.unknown_function,
-                                               sp.Lambda(cls.argument, polynomial.expression))
-
-        # Transform to [-1, 1] interval:
-        basic_expression = basic_expression.subs(local_coordinate,
-                                               sp.Lambda(cls.argument,
-                                                         polynomial.coordinate_transform)).doit()
-        weight_replacements = {w1: w2 for w1, w2 in zip(polynomial.weight_variables,
-                                                        polynomial.transformed_weights)}
-        basic_expression *= polynomial.inverse_coordinate_transform.diff(polynomial.x)
-
-        for i,w in enumerate(polynomial.weight_functions):
+        for i,w in enumerate(polynomial.general_weight_functions):
             specific_expression = basic_expression.subs(cls.basis_function,
-                                                       sp.Lambda(cls.argument, w)).doit()
-            specific_expression = specific_expression.subs(weight_replacements)
+                                                        sp.Lambda(cls.argument, w)).doit()
             expressions += [specific_expression]
 
         # We need different expressions for each side of the [-1,1] domain.
-        left, right = ([e.subs(cls.argument, x) for e in expressions] for x in (-1,1))
+        left, right = ([e.subs(cls.argument, x) for e in expressions] for x in (polynomial.x0, polynomial.x1))
         return left, right
 
     @classmethod
@@ -237,24 +219,9 @@ class WeakFormProblem1d:
         expressions = []
         for point, lhs, rhs in cls.boundary_conditions:
             expression = lhs - rhs
-
-            # Substitute in temporary function for the variable so we can transform to
-            # the local coordinate later.
-            expression = expression.subs(cls.unknown_function(cls.argument),
-                                         cls.unknown_function(local_coordinate(cls.argument)))
-
-            # Substitute in local expression for function in this element.
-            expression = expression.subs(cls.unknown_function,
-                                         sp.Lambda(cls.argument, polynomial.expression))
-
-            # Transform to [-1, 1] interval:
-            expression = expression.subs(local_coordinate,
-                                         sp.Lambda(cls.argument,
-                                                   polynomial.coordinate_transform)).doit()
-            weight_replacements = {w1: w2 for w1, w2 in zip(polynomial.weight_variables,
-                                                            polynomial.transformed_weights)}
-            expression = expression.subs(weight_replacements)
-            expression = expression.subs(cls.argument, point)
+            expression = expression.subs(
+                {cls.unknown_function: sp.Lambda(cls.argument, polynomial.general_expression),
+                 cls.argument: point})
 
             expressions += [(point, expression)]
 
@@ -298,33 +265,23 @@ class WeakFormProblem1d:
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
 
         residuals = []
-        basic_integrand = cls.weak_form
+        basic_integrand = cls.weak_form.subs(cls.unknown_function,
+                                             sp.Lambda(cls.argument, polynomial.general_expression))
 
-        # Substitute in temporary function for the variable so we can transform to
-        # the local coordinate later.
-        local_coordinate = sp.Function('s')
-        basic_integrand = basic_integrand.subs(cls.unknown_function(cls.argument),
-                                               cls.unknown_function(local_coordinate(cls.argument)))
+        # We use a fixed-order Gaussian quadrature rule for the integration, so we need to
+        # determine the location of points to sample and the weights. These are pre-calculated
+        # in numpy in the [-1, 1] interval:
+        roots, weights = _cached_roots_legendre(2*order+1)
+        # Transform to general interval [x0, x1]:
+        x = polynomial.inverse_coordinate_transform
+        dxds = sp.Lambda(cls.argument, x.diff(cls.argument))
+        x = sp.Lambda(cls.argument, x)
+        roots = [x(r) for r in roots]
+        weights = [w*dxds(w) for w in weights]
 
-        # Substitute in local expression for function in this element.
-        basic_integrand = basic_integrand.subs(cls.unknown_function,
-                                               sp.Lambda(cls.argument, polynomial.expression))
-
-        # Transform to [-1, 1] interval:
-        basic_integrand = basic_integrand.subs(local_coordinate,
-                                               sp.Lambda(cls.argument,
-                                                         polynomial.coordinate_transform)).doit()
-        weight_replacements = {w1: w2 for w1, w2 in zip(polynomial.weight_variables,
-                                                        polynomial.transformed_weights)}
-        basic_integrand *= polynomial.inverse_coordinate_transform.diff(polynomial.x)
-
-        for i,w in enumerate(polynomial.weight_functions):
+        for i,w in enumerate(polynomial.general_weight_functions):
             specific_integrand = basic_integrand.subs(cls.basis_function,
                                                       sp.Lambda(cls.argument, w)).doit()
-            specific_integrand = specific_integrand.subs(weight_replacements)
-
-            # We use a fixed-order Gaussian quadrature rule for the integration:
-            roots, weights = _cached_roots_legendre(2*order+1)
             result = sum([w*specific_integrand.subs(cls.argument, p).doit() for p, w in zip(roots, weights)])
 
             residuals += [result]
@@ -361,12 +318,13 @@ class WeakFormProblem1d:
             elif boundary == 1: R[1:,deriv] += r
             else: raise RuntimeError('unknown variable indices during residual calculation!')
 
-        # Apply natural boundary conditions needed to make weak form valid (these conditions
+        # Apply natural boundary condition needed to make weak form valid (these conditions
         # arise from surface terms left over from e.g. integration by parts).
-        left, right = self.compiled_natural_boundary_condition_expressions(order)
-        for c, (l, r) in enumerate(zip(left, right)):
-            R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
-            R[-order + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
+        if self.natural_boundary_condition:
+            left, right = self.compiled_natural_boundary_condition_expressions(order)
+            for c, (l, r) in enumerate(zip(left, right)):
+                R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
+                R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
 
         # Evaluate residual contributions from specific boundary conditions.
         element_edges = nodes[:-1]
@@ -435,19 +393,23 @@ class WeakFormProblem1d:
 
         J = J.reshape(len(J), -1)
 
-        # Apply natural boundary conditions needed to make weak form valid (these conditions
+        # Apply natural boundary condition needed to make weak form valid (these conditions
         # arise from surface terms left over from e.g. integration by parts).
-        left, right = self.compiled_natural_boundary_condition_jacobians(order)
-        for c, (l, r) in enumerate(zip(left, right)):
-            l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
-            r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
+        if self.natural_boundary_condition:
+            left, right = self.compiled_natural_boundary_condition_jacobians(order)
+            for c, (l, r) in enumerate(zip(left, right)):
+                l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
+                r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
 
-            starting_row = len(J)-1-len(variables)
-            eqnl = c
-            eqnr = -2*order+c
-            J[starting_row:starting_row+len(l), eqnr] += r
-            starting_row -= order
-            J[starting_row:starting_row+len(r), eqnl] += l
+                starting_row = len(J)-1-len(variables)
+                eqn = -2*order+c
+                rows = np.arange(starting_row, starting_row+len(l)) % len(J)
+                J[rows, eqn] += r
+
+                eqn = c
+                starting_row -= order
+                rows = np.arange(starting_row, starting_row+len(l)) % len(J)
+                J[rows, eqn] += l
 
         # Apply boundary conditions.
         element_edges = nodes[:-1]
@@ -563,7 +525,9 @@ class DummyProblem(WeakFormProblem1d):
     def strong_form(cls):
         x, u, b, a = cls.x, cls.u, cls.b, cls.a
         #return u(x).diff(x,4)
-        return u(x).diff(x,2) #+ a #*u(x)
+        #return a
+        #return u(x).diff(x,2) +
+        return u(x).diff(x,2) - a
 
     @classmethod
     @property
@@ -571,7 +535,8 @@ class DummyProblem(WeakFormProblem1d):
         x, u, b, a = cls.x, cls.u, cls.b, cls.a
         #return u(x).diff(x,2)*b(x).diff(x,2) + a*u(x)*b(x)
         #return u(x).diff(x,2)*b(x).diff(x,2)
-        return -u(x).diff(x)*b(x).diff(x) #+ u(x)*b(x)
+        return -u(x).diff(x)*b(x).diff(x) - a*b(x)
+        #return u(x).diff(x)*b(x) - a*b(x) #a*u(x)*b(x)
         #return u(x).diff(x,2)*b(x)#.diff(x,1) #a*b(x)#*u(x)*b(x)
 
     @classmethod
@@ -587,7 +552,9 @@ class DummyProblem(WeakFormProblem1d):
         up = lambda x2: u(x).diff(x).subs(x, x2)
         #return {(0, u(x), 1), (1, up(x), -1)}
         #return {(0, u(x), 1), (0, up(x), 0), (1, u(x), 0), (1, up(x), 0)}
-        return {(0, u(x), 1), (0, up(x), -1)}
+        return {(0, u(x), 1), (1, u(x), 1)}
+        #return {(0, u(x), 1)}
+        #return {(0, up(x), -1)}
         #return {u(0): 1, up(0): 0, u(1): 0, up(1): 0}
         #return {u(0): 1, u(1): 0}
 
@@ -598,7 +565,7 @@ class DummyProblem(WeakFormProblem1d):
 # print()
 # print(HeatEquation.elemental_jacobian(2))
 
-p = DummyProblem(1)
+p = DummyProblem(2)
 print(p.analytic_solution)
 #import sys; sys.exit(0)
 #p = HeatEquation()

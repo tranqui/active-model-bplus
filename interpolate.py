@@ -221,6 +221,25 @@ class HermiteInterpolatingPolynomial:
         w = sp.lambdify([self.x0, self.x1] + self.weight_variables, self.transformed_weights)
         return np.array(w(x0, x1, *weights.T)).T
 
+    @property
+    def general_expression(self):
+        replacements = {w1: w2 for w1, w2 in zip(self.weight_variables,
+                                                 self.transformed_weights)}
+        replacements[self.x] = self.coordinate_transform
+        return self.expression.subs(replacements).simplify()
+
+    @property
+    def general_weight_functions(self):
+        replacements = {w1: w2 for w1, w2 in zip(self.weight_variables,
+                                                 self.transformed_weights)}
+        replacements[self.x] = self.coordinate_transform
+
+        weight_functions = []
+        for w in self.weight_functions:
+            weight_functions += [w.subs(replacements).simplify()]
+
+        return weight_functions
+
 class HermiteInterpolator:
     """An interpolator on the line interval [-1,1] which matches values and derivatives on the
     boundaries. This is helpful for representing finite element solutions to ODEs where
