@@ -84,8 +84,8 @@ class Expression:
 
 class WeakFormProblem1d:
     argument = sp.Symbol('x')
-    unknown_function = sp.Function('u')
-    basis_function = sp.Function('b')
+    unknown_function = sp.Function('unknown_function')
+    basis_function = sp.Function('basis_function')
 
     parameters = []
 
@@ -214,7 +214,6 @@ class WeakFormProblem1d:
     @lru_cache
     def boundary_condition_expressions(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
-        local_coordinate = sp.Function('s')
 
         expressions = []
         for point, lhs, rhs in cls.boundary_conditions:
@@ -330,6 +329,9 @@ class WeakFormProblem1d:
         element_edges = nodes[:-1]
         bcs = {}
         for point, func in self.compiled_boundary_condition_expressions(order):
+            # If point is an analytic expression we may need to evaluate it.
+            point = sp.lambdify(self.parameters, point)(*self.parameter_values)
+
             # Evaluate boundary condition on the local element
             element = np.digitize(point, element_edges)-1
             xleft, xright = nodes[element:element+2]
@@ -415,6 +417,9 @@ class WeakFormProblem1d:
         element_edges = nodes[:-1]
         bcs = {}
         for point, row in self.compiled_boundary_condition_jacobians(order):
+            # If point is an analytic expression we may need to evaluate it.
+            point = sp.lambdify(self.parameters, point)(*self.parameter_values)
+
             element = np.digitize(point, element_edges)-1
             closest_node = np.abs(nodes - point).argmin()
             xleft, xright = nodes[element:element+2]
@@ -425,7 +430,8 @@ class WeakFormProblem1d:
             if boundary_on_left: starting_row -= order
 
             entry = np.zeros(len(J))
-            entry[starting_row:starting_row+len(values)] = values
+            rows = np.arange(starting_row, starting_row+len(values)) % len(J)
+            entry[rows] = values
             try: bcs[closest_node] += [entry]
             except: bcs[closest_node] = [entry]
 
@@ -461,39 +467,33 @@ class WeakFormProblem1d:
         nnodes = J.shape[1]
         Jfull = np.zeros((nnodes, nnodes))
 
-        #u = order
         for i in range(nnodes):
             for j in range(nnodes):
                 if (u + i - j) < 0 or (u + i - j) >= len(J): continue
                 Jfull[i, j] = J[u + i - j, j]
         return Jfull
 
-    def solve(self, nodes, weights):
+    def solve(self, nodes, weights, atol=1e-6, max_iters=10, print_updates=None):
         nelements, order = weights.shape
         nelements -= 1
 
         R = self.residuals(nodes, weights)
 
         iters = 0
-        while np.linalg.norm(R) > 1e-6 and iters < 5:
-            print(iters, R)
-            J = self.jacobian(nodes, weights)
+        if print_updates:
+            print_updates.write('iter residuals\n%r %r\n' % (iters, R))
 
-            # full = self.full_jacobian(J)
-            # num = self.numerical_jacobian(self.weights)
-            # print(full)
-            # print(num)
-            # print(full-num)
-            # assert np.allclose(full, num)
+        while np.linalg.norm(R) > atol and iters < max_iters:
+            J = self.jacobian(nodes, weights)
 
             weights = weights + solve_banded((order+1, order+1), J, -R).reshape(weights.shape)
             R = self.residuals(nodes, weights)
             iters += 1
+            if print_updates: print_updates.write('%r %r\n' % (iters, R))
 
-        print()
-        print(nodes)
-        print(weights)
-        print(R)
+        if print_updates:
+            print_updates.write('\nsolution:\n%r\n' % np.hstack([nodes.reshape(-1,1),weights]))
+
         return weights
 
 class HeatEquation(WeakFormProblem1d):
@@ -516,268 +516,94 @@ class HeatEquation(WeakFormProblem1d):
     def boundary_conditions(cls):
         return {(0, cls.u(cls.x), 1), (1, cls.u(cls.x), 0)}
 
-class DummyProblem(WeakFormProblem1d):
-    a = sp.Symbol('a')
-    parameters = [a]
+class GinzburgLandauFlatInterface(WeakFormProblem1d):
+    a, g, k = sp.symbols('a g K')
+    parameters = [a, g, k]
+
+    @classmethod
+    @property
+    def binodal(cls):
+        a, g = cls.a, cls.g
+        return sp.sqrt(-a/g)
+
+    @classmethod
+    @property
+    def interfacial_width(cls):
+        a, k = cls.a, cls.k
+        return sp.sqrt(-k/(2*a))
+
+    @classmethod
+    @property
+    def domain_size(cls):
+        return 25*cls.interfacial_width
+
+    @property
+    def numerical_domain_size(self):
+        return sp.lambdify(self.parameters, self.domain_size)(*self.parameter_values)
+
+    @classmethod
+    @property
+    def analytic_solution(cls):
+        """Equation is not analytically solvable with the methods available to Sympy, so we
+        hard-code the true solution here."""
+        return sp.tanh(cls.x/cls.interfacial_width)
 
     @classmethod
     @property
     def strong_form(cls):
-        x, u, b, a = cls.x, cls.u, cls.b, cls.a
-        #return u(x).diff(x,4)
-        #return a
-        #return u(x).diff(x,2) +
-        return u(x).diff(x,2) - a
+        x, u, b, a, g, k = cls.x, cls.u, cls.b, cls.a, cls.g, cls.k
+        return a*u(x) + g*u(x)**3 - k*u(x).diff(x,2)
 
     @classmethod
     @property
     def weak_form(cls):
-        x, u, b, a = cls.x, cls.u, cls.b, cls.a
-        #return u(x).diff(x,2)*b(x).diff(x,2) + a*u(x)*b(x)
-        #return u(x).diff(x,2)*b(x).diff(x,2)
-        return -u(x).diff(x)*b(x).diff(x) - a*b(x)
-        #return u(x).diff(x)*b(x) - a*b(x) #a*u(x)*b(x)
-        #return u(x).diff(x,2)*b(x)#.diff(x,1) #a*b(x)#*u(x)*b(x)
+        x, u, b, a, g, k = cls.x, cls.u, cls.b, cls.a, cls.g, cls.k
+        return (a*u(x) + g*u(x)**3)*b(x) - k*u(x).diff(x,2)*b(x)
 
     @classmethod
     @property
     def natural_boundary_condition(cls):
-        x, u, b, a = cls.x, cls.u, cls.b, cls.a
-        return u(x).diff(x) * b(x)
+        x, u, b, a, g, k = cls.x, cls.u, cls.b, cls.a, cls.g, cls.k
+        return -k * u(x).diff(x) * b(x)
 
     @classmethod
     @property
     def boundary_conditions(cls):
-        x, u, b, a = cls.x, cls.u, cls.b, cls.a
-        up = lambda x2: u(x).diff(x).subs(x, x2)
-        #return {(0, u(x), 1), (1, up(x), -1)}
-        #return {(0, u(x), 1), (0, up(x), 0), (1, u(x), 0), (1, up(x), 0)}
-        return {(0, u(x), 1), (1, u(x), 1)}
-        #return {(0, u(x), 1)}
-        #return {(0, up(x), -1)}
-        #return {u(0): 1, up(0): 0, u(1): 0, up(1): 0}
-        #return {u(0): 1, u(1): 0}
-
-# print(HeatEquation.elemental_residuals(1))
-# print(HeatEquation.elemental_jacobian(1))
-# print()
-# print(HeatEquation.elemental_residuals(2))
-# print()
-# print(HeatEquation.elemental_jacobian(2))
-
-p = DummyProblem(2)
-print(p.analytic_solution)
-#import sys; sys.exit(0)
-#p = HeatEquation()
-x = np.linspace(0, 1, 5)
-w = np.ones((len(x), 2))
-#print(p.elemental_residuals(2))
-np.set_printoptions(4, suppress=True, linewidth=10000)
-#print(p.residuals(x, w))
-
-J1 = p.numerical_jacobian(x, w)
-J = p.jacobian(x, w)
-J2 = p.full_jacobian(J)
-
-print(J1)
-print()
-print(J2)
-print()
-print(J1-J2)
-#import sys; sys.exit(0)
-
-import matplotlib.pyplot as plt
-
-w = p.solve(x, w)
-f = HermiteInterpolator(x, w)
-pl, = plt.plot(x, w[:,0], 'o', mfc='None')
-
-xx = np.linspace(np.min(x), np.max(x), 1000)
-plt.plot(xx, f(xx), '-', c=pl.get_color())
-try: plt.plot(xx, p.exact_solution(xx), '--')
-except: plt.plot(xx, [p.exact_solution(xx)]*len(xx), '--')
-plt.show()
-
-#print()
-#print(J)
-
-#print()
-#print(HeatEquation.residuals(4))
-
-#print()
-#print(DummyProblem.residuals(2))
-import sys; sys.exit(0)
-
-class FiniteElement1dODESolver(HermiteInterpolator):
-    def __init__(self, problem, nodes, order=1, weights_guess=None,
-                 integrate_analytically=False, print_updates=None):
-        """
-        Args:
-            equation: weak-form integrand for ODE we are solving.
-            test_function: symbol for test function specified in equation
-        """
-        if weights_guess is None:
-            weights_guess = np.zeros((nodes.size,order))
-        else:
-            assert weights_guess.shape == (len(nodes), order)
-
-        super().__init__(nodes, weights_guess)
-        self.problem = problem
-
-        self.integrate_analytically = integrate_analytically
-        self.print_updates = print_updates
-
-        if self.print_updates:
-            R = self.problem.residuals(self.weights)
-            J = self.problem.jacobian(self.weights)
-
-            self.print_updates.write('iterating to solve ODE...\n')
-            np.set_printoptions(4, suppress=True, linewidth=10000)
-
-            self.print_updates.write(repr(R) + '\n')
-            self.print_updates.write(repr(self.full_jacobian(J)) + '\n')
-
-        R = self.residuals(self.weights)
-        iters = 0
-        while np.linalg.norm(R) > 1e-6 and iters < 5:
-            print(iters, R)
-            J = self.problem.jacobian(self.weights)
-
-            full = self.full_jacobian(J)
-            num = self.numerical_jacobian(self.weights)
-            print(full)
-            print(num)
-            print(full-num)
-            assert np.allclose(full, num)
-
-            self.weights += solve_banded((self.degree, self.degree), J, -R).reshape(self.weights.shape)
-            R = self.problem.residuals(self.weights)
-            iters += 1
-
-        if self.print_updates:
-            self.print_updates.write('final residuals: %r\n' % self.global_residuals(self.weights))
-
-        #assert np.allclose(self.global_residuals(self.weights),
-        #                   np.zeros(self.weights.shape))
-        sys.exit(0)
-
-    @property
-    def element_integration_limits(self):
-        return self.xvar, self.local_node_variables[0], self.local_node_variables[-1]
-
-    def compile_function(self, expr):
-        return sp.lambdify(self.local_node_variables + self.local_node_weight_variables, expr)
-
-    def residuals(self, weights):
-        R = np.zeros(self.nodes.shape)
-        local_weights = [weights[i] for i in self.local_indices]
-        for res, nodes in zip(self.local_residuals, self.local_indices):
-            R[nodes] += res(*self.local_nodes, *local_weights)
-        R[0] = weights[0]-1
-        # m = len(self.global_nodes)//2
-        # R[m] = weights[m]-0.5
-        R[-1] = weights[-1]
-        return R
-
-    def jacobian(self, weights):
-        J = np.zeros((2*self.degree+1, len(self.global_nodes)))
-        diagonal = self.degree
-        local_weights = [weights[i] for i in self.local_indices]
-        for local, (jac, nodes) in enumerate(zip(self.local_jacobians,
-                                                 self.local_indices)):
-            for row, func in enumerate(jac):
-                offset = local - row
-                row = diagonal + offset
-                J[row,nodes-offset] += func(*self.local_nodes, *local_weights)
-
-        # Boundary conditions.
-        def clear_jacobian_row(self, J, row):
-            l = max(-self.degree, i-len(J))
-            u = min(self.degree, i)
-            for i in range(l, 1+u): J[diagonal+i,-i+row] = 0
-
-        for i in range(-self.degree,0): J[diagonal+i,-i] = 0
-        J[diagonal,0] = 1
-
-        # m = len(self.global_nodes)//2
-        # for i in range(-self.degree,self.degree+1): J[diagonal+i,-i+m] = 0
-        # J[diagonal,m] = 1
-
-        for i in range(self.degree+1): J[diagonal+i,-i-1] = 0
-        J[diagonal,-1] = 1
-
-        return J
-
-    def numerical_jacobian(self, weights):
-        return gradient(self.residuals, weights, dx=1e-4).T
-
-    def full_jacobian(self, J):
-        """Convert banded jacobian into full square matrix. Useful for testing."""
-        Jfull = np.zeros((len(self.global_nodes), len(self.global_nodes)))
-        for i in range(len(Jfull)):
-            for j in range(len(Jfull)):
-                if (self.degree + i - j) < 0 or (self.degree + i - j) > 2*self.degree: continue
-                Jfull[i,j] = J[self.degree + i - j, j]
-        return Jfull
+        x, u = cls.x, cls.u
+        # return {(0, u(x), 0), (cls.domain_size, u(x), cls.binodal)}
+        return {(-cls.domain_size, u(x), -cls.binodal),
+               (0, u(x), 0),
+               (cls.domain_size, u(x), cls.binodal)}
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import sys
 
-    print_updates = sys.stderr
-    #print_updates = None
+    np.set_printoptions(4, suppress=True, linewidth=10000)
 
-    # plt.figure()
-    # poly = HermiteInterpolatingPolynomial(2)
-    # x = np.linspace(-1, 1, 1000)
-    # for w in poly.weight_functions:
-    #     f = sp.lambdify(poly.x, w)
-    #     plt.plot(x, f(x))
-    # #plt.show()
+    p = GinzburgLandauFlatInterface(-0.25, 0.25, 1)
+    print(p.analytic_solution)
 
-    # #sys.exit(0)
+    x = p.numerical_domain_size * np.linspace(-1, 1, 100)**3
+    w = np.zeros((len(x), 2))
+    w[:,0] = np.linspace(-1, 1, len(w))
 
-    # plt.figure()
-    # x = np.linspace(0, 1, 2)
-    # y = x**5
-    # yp = 5*x**4
-    # ypp = 20*x**3
-    # f = HermiteInterpolator(x, [y,yp,ypp])
-    # pl, = plt.plot(x, y, 'o', mfc='None')
-    # x = np.linspace(x[0], x[-1], 1000)
-    # plt.plot(x, f(x), lw=0.5, c=pl.get_color())
-    # plt.plot(x, x**5, '--', lw=0.5)
-    # # plt.figure()
-    # # plt.plot(x, f(x)-x**5)
-    # plt.show()
+    # J1 = p.numerical_jacobian(x, w)
+    # J = p.jacobian(x, w)
+    # J2 = p.full_jacobian(J)
 
-    # sys.exit(0)
+    # print(J1)
+    # print()
+    # print(J2)
+    # print()
+    # print(J1-J2)
 
-    #degree = 2
-    #nelements = 3
-    #xmax = nelements*degree
-    #xmax = 1
+    w = p.solve(x, w, print_updates=sys.stderr)
+    f = HermiteInterpolator(x, w)
+    pl, = plt.plot(x, w[:,0], 'o', mfc='None')
 
-    #print(sp.dsolve(eqn, u(x), ics={u(-sp.oo): 1, u(0): 0.5, u(sp.oo): 0}))
-    #print(eqn)
-    #print(solution)
-    #weak_form = -(f.diff(u(x)) - u(x).diff(x,2)) * w(x).diff()
-    #weak_form = u(x).diff(x,2) * w(x).diff()
-    #print(weak_form)
-    #sys.exit(0)
-    #print(eqn.subs(u(x), sp.tanh(x/a)).doit().simplify())
-    #problem = DummyProblem(1)
-    problem = HeatEquation()
-    nodes = np.linspace(0, 1, 100)
-    #solver = FiniteElement1dODESolver(problem, nodes, order=2, print_updates=print_updates)
-
-    #pl, = plt.plot(solver.x, solver.w, 'o', mfc='None', label='central nodes')
-    #plt.plot(solver.x[::degree], solver.w[::degree], 'o', c=pl.get_color(), label='end nodes')
-    x = np.linspace(0, nodes[-1], 1000)
-    #plt.plot(x, solver(x), '-', c=pl.get_color(), zorder=-10, label='FE solution')
-
-    exact = sp.lambdify(problem.argument, problem.exact_solution)
-    plt.plot(x, exact(x), '--')#, c=pl.get_color(), zorder=-10, label='exact solution')
-    plt.legend(loc='best')
-
+    xx = np.linspace(np.min(x), np.max(x), 2001)
+    plt.plot(xx, f(xx), '-', c=pl.get_color())
+    try: plt.plot(xx, p.exact_solution(xx), '--')
+    except: plt.plot(xx, [p.exact_solution(xx)]*len(xx), '--')
     plt.show()
