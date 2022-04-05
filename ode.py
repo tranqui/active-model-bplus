@@ -10,78 +10,6 @@ from functools import lru_cache
 from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
 import differentiate
 
-class Expression:
-    arguments = []
-    parameters = []
-
-    def __init__(self, *args):
-        """Instantiate expression with specific parameters.
-
-        Args:
-            *args: values of parameters in same order as parameters class variable.
-        """
-        assert len(args) is len(self.parameters)
-        self.parameter_values = args
-
-    @classmethod
-    def expression(cls):
-        """Symbolic expression that must be defined in derived expressions."""
-        raise NotImplementedError('should only be called from derived expression!')
-
-    @classmethod
-    def expr(cls):
-        """Alias for expression."""
-        return cls.expression()
-
-    @classmethod
-    def diff(cls, n=1):
-        """Derivative of expression with respect to its arguments.
-
-        Arg:
-            n: order of derivative
-        Returns:
-            Derivative expression if there is a single argument, or an array-like object of
-              expressions when there are multiple arguments (with entries for each derivative).
-        """
-        if len(cls.arguments) == 1: args = cls.arguments[0]
-        else: args = cls.arguments
-        expr = cls.expression().diff([args, n])
-        return expr
-
-    @classmethod
-    @property
-    def variables(cls):
-        """Variables taken as arguments to expression in numerical evaluations (i.e. including
-        parameters)."""
-        return cls.arguments + cls.parameters
-
-    @classmethod
-    def numerical_implementation(cls, deriv=0):
-        """Expression to pass for numerical implementation, that may differ in form from the exact
-        expression in order to better handle e.g. numerical instabilities."""
-        return cls.diff(deriv)
-
-    @classmethod
-    @lru_cache
-    def compiled_function(cls, deriv=0):
-        """Compile the function so that it can be numerically evaluated with native python
-        structures, if not already done so for this expression.
-
-        We cache the result (at the class-level) to prevent unnecessary recompilations for many
-        instances of the same expression (with e.g. different choices of parameters).
-
-        Args:
-            deriv: order of derivative to compile into an evaluatable function
-        """
-        return sp.lambdify(cls.variables, cls.numerical_implementation(deriv))
-
-    def __call__(self, *args, deriv=0):
-        """Numerically evaluate expression."""
-        cls = self.__class__
-        f = cls.compiled_function(deriv)
-        with np.errstate(invalid='ignore'):
-            return f(*args + self.parameter_values)
-
 class WeakFormProblem1d:
     argument = sp.Symbol('x')
     unknown_function = sp.Function('unknown_function')
@@ -171,7 +99,7 @@ class WeakFormProblem1d:
             expressions += [specific_expression]
 
         # We need different expressions for each side of the [-1,1] domain.
-        left, right = ([e.subs(cls.argument, x) for e in expressions] for x in (polynomial.x0, polynomial.x1))
+        left, right = ([e.subs(cls.argument, x).doit() for e in expressions] for x in (polynomial.x0, polynomial.x1))
         return left, right
 
     @classmethod
@@ -220,7 +148,7 @@ class WeakFormProblem1d:
             expression = lhs - rhs
             expression = expression.subs(
                 {cls.unknown_function: sp.Lambda(cls.argument, polynomial.general_expression),
-                 cls.argument: point})
+                 cls.argument: point}).doit()
 
             expressions += [(point, expression)]
 
@@ -275,8 +203,8 @@ class WeakFormProblem1d:
         x = polynomial.inverse_coordinate_transform
         dxds = sp.Lambda(cls.argument, x.diff(cls.argument))
         x = sp.Lambda(cls.argument, x)
+        weights = [w*dxds(r) for r,w in zip(roots,weights)]
         roots = [x(r) for r in roots]
-        weights = [w*dxds(w) for w in weights]
 
         for i,w in enumerate(polynomial.general_weight_functions):
             specific_integrand = basic_integrand.subs(cls.basis_function,
@@ -310,7 +238,8 @@ class WeakFormProblem1d:
         w = np.hstack((weights[:-1], weights[1:]))
 
         for var, func in zip(variables, functions):
-            r = func(xleft, xright, *w.T, *self.parameter_values)
+            with np.errstate(divide='raise'):
+                r = func(xleft, xright, *w.T, *self.parameter_values)
 
             boundary, deriv = var.indices
             if boundary == 0: R[:-1,deriv] += r
@@ -322,8 +251,9 @@ class WeakFormProblem1d:
         if self.natural_boundary_condition:
             left, right = self.compiled_natural_boundary_condition_expressions(order)
             for c, (l, r) in enumerate(zip(left, right)):
-                R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
-                R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
+                with np.errstate(divide='raise'):
+                    R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
+                    R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
 
         # Evaluate residual contributions from specific boundary conditions.
         element_edges = nodes[:-1]
@@ -558,7 +488,7 @@ class GinzburgLandauFlatInterface(WeakFormProblem1d):
     @property
     def weak_form(cls):
         x, u, b, a, g, k = cls.x, cls.u, cls.b, cls.a, cls.g, cls.k
-        return (a*u(x) + g*u(x)**3)*b(x) - k*u(x).diff(x,2)*b(x)
+        return (a*u(x) + g*u(x)**3)*b(x) + k*u(x).diff(x)*b(x).diff(x)
 
     @classmethod
     @property

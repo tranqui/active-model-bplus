@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy.special import factorial
+from scipy.integrate._quadrature import _cached_roots_legendre
 
 import sympy as sp
 from sympy.polys.specialpolys import interpolating_poly
@@ -150,7 +151,7 @@ class HermiteInterpolatingPolynomial:
         self.x = x
         self.w = w
 
-        # Polynomial must have enough degrees of freedom to match constraints on bouth boundaries
+        # Polynomial must have enough degrees of freedom to match constraints on both boundaries
         # (which we call the "order" of the interpolation), so we must double the order.
         self.degree = 2*order-1
 
@@ -294,18 +295,124 @@ class HermiteInterpolator:
     def local_node_variables(self):
         return self.interpolating_polynomial.weight_variables
 
-    def __call__(self, x):#, derivative=0):
+
+    def __call__(self, x, derivative=0):
+        """
+        Evaluate interpolator at points.
+
+        Args:
+            x: points (array-like) to interpolate. Must be inside the domain.
+            derivative: number of times to differentiate function before evaluation
+               (default=0 means do not differentiate).
+        Returns:
+            Values of function at x.
+        """
         # Determine which element each coordinate is in so we use the correct local polynomial.
         elements = self.find_element(x)
         weights = np.hstack((self.weights[elements], self.weights[elements+1]))
-
-        # Transform into the local coordinate bounded in [-1, 1] for each element:
         xleft, xright = self.x[elements], self.x[elements+1]
-        s = self.interpolating_polynomial.transform_coordinate(xleft, xright, x)
-        weights = self.interpolating_polynomial.transform_weights(xleft, xright, weights)
 
-        f = sp.lambdify([self.local_variable] + self.local_node_variables, self.interpolating_polynomial.expression)
-        return f(s, *weights.T)
+        polynomial = self.interpolating_polynomial
+        expr = polynomial.general_expression.diff(self.local_variable, derivative)
+        f = sp.lambdify([self.local_variable] + [polynomial.x0, polynomial.x1] + self.local_node_variables, expr)
+
+        return f(x, xleft, xright, *weights.T)
+
+    def integrate(self, f, u=sp.Function('f'), arg=None):
+        """
+        Numerically integrates a function over the whole domain.
+
+        Args:
+            f: function to integrate over. Should be a function of arg.
+            u: symbol used for interpolated function
+            arg: symbol used for argument of f. If None then will assume our local variable symbol.
+        """
+        if arg is None: arg = self.local_variable
+
+        polynomial = self.interpolating_polynomial
+        expr = f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression))
+
+        # We use a fixed-order Gaussian quadrature rule for the integration, so we need to
+        # determine the location of points to sample and the weights. These are pre-calculated
+        # in numpy in the [-1, 1] interval:
+        roots, weights = _cached_roots_legendre(2*self.order+1)
+        # Transform to general interval [x0, x1]:
+        x = polynomial.inverse_coordinate_transform.subs(self.local_variable, arg)
+        dxds = sp.Lambda(arg, x.diff(arg))
+        x = sp.Lambda(arg, x)
+        weights = [w*dxds(r) for r, w in zip(roots, weights)]
+        roots = [x(r) for r in roots]
+
+        single_integral = sum([w*expr.subs(arg, p).doit() for p, w in zip(roots, weights)])
+        integrator = sp.lambdify([polynomial.x0, polynomial.x1] + self.local_node_variables, single_integral)
+
+        xleft, xright = self.x[:-1], self.x[1:]
+        weights = np.hstack((self.weights[:-1], self.weights[1:]))
+        return np.sum(integrator(xleft, xright, *weights.T))
+
+    @classmethod
+    @lru_cache
+    def compiled_integrators(cls, order, f, u=sp.Function('f'), arg=None):
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order)
+        if arg is None: arg = polynomial.x
+
+        integrand = f.subs(u, sp.Lambda(polynomial.x,
+                                        polynomial.general_expression)).simplify()
+        expr = integrand.integrate((arg, polynomial.x0, polynomial.x)).doit()
+
+        left_node_values = []
+        right_node_values = []
+
+        for c in range(order):
+            deriv_expr = expr.diff(polynomial.x, c)
+            left_node_values += [deriv_expr.subs(polynomial.x, polynomial.x0).simplify()]
+            right_node_values += [deriv_expr.subs(polynomial.x, polynomial.x1).simplify()]
+
+        variables = [polynomial.x0, polynomial.x1] + polynomial.weight_variables
+        left_node_values = [sp.lambdify(variables, func) for func in left_node_values]
+        right_node_values = [sp.lambdify(variables, func) for func in right_node_values]
+
+        return left_node_values, right_node_values
+
+    def analytic_integral(self, f, u=sp.Function('f'), arg=None):
+        """
+        Analytically calculates a definite integral of a function within the domain,
+        from the left-most boundary up to an arbitrary point within the domain, i.e.
+
+            F(x) = \int_{x_0}^x f(y) dy
+
+        for x < x_1. More general definite integrals over [a,b] can then be obtained by
+        evaluating F(b) - F(a).
+
+        The function being integrated must be sufficiently simple that it can actually be
+        integrated analytically, or else this will fail.
+
+        Args:
+            f: function to integrate over. Should be a function of arg.
+            u: symbol used for interpolated function
+            arg: symbol used for argument of f. If None then will assume our local variable symbol.
+        Returns:
+            HermiteInterpolator object for the interpolated analytic solution.
+        """
+        # if arg is None: arg = self.local_variable
+
+        # polynomial = self.interpolating_polynomial
+        # integrand = f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression)).simplify()
+        # expr = integrand.integrate((arg, polynomial.x0, self.local_variable)).doit()
+
+        # variables = [polynomial.x0, polynomial.x1] + self.local_node_variables
+        xleft, xright = self.x[:-1], self.x[1:]
+        weights = np.hstack((self.weights[:-1], self.weights[1:]))
+
+        left_integrators, right_integrators = self.compiled_integrators(self.order, f, u, arg)
+
+        w = np.empty(self.weights.shape)
+        for c, (ileft, iright) in enumerate(zip(left_integrators, right_integrators)):
+            w[0,c] = ileft(xleft[0], xright[0], *weights[0])
+            w[1:,c] = iright(xleft, xright, *weights.T)
+        w[:,0] = np.cumsum(w[:,0])
+
+        return HermiteInterpolator(self.nodes, w)
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
