@@ -5,10 +5,10 @@ from scipy.linalg import solve_banded
 from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
 
-from functools import lru_cache
-
 from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
 import differentiate
+
+from cache import lru_cache, disk
 
 class WeakFormProblem1d:
     argument = sp.Symbol('x')
@@ -104,6 +104,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_natural_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         expressions = cls.natural_boundary_condition_expressions(order, *args, **kwargs)
         compiled_expressions = []
@@ -125,6 +126,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_natural_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         compiled_jacobians = []
         left, right = cls.natural_boundary_condition_jacobians(order, *args, **kwargs)
@@ -156,6 +158,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         expressions = cls.boundary_condition_expressions(order, *args, **kwargs)
         compiled_expressions = []
@@ -176,6 +179,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         jacobians = cls.boundary_condition_jacobians(order, *args, **kwargs)
         compiled_jacobians = []
@@ -217,6 +221,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_elemental_residuals(cls, order, *args, **kwargs):
         residuals = cls.elemental_residuals(order, *args, **kwargs)
         compiled_residuals = []
@@ -291,6 +296,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_elemental_jacobians(cls, order, *args, **kwargs):
         jacobians = cls.elemental_jacobians(order, *args, **kwargs)
         compiled_jacobians = []
