@@ -3,14 +3,13 @@
 import numpy as np, matplotlib.pyplot as plt
 from scipy.integrate import quad
 from scipy.optimize import newton_krylov
+from scipy.special import erf, erfinv
 import sympy as sp
-
-from functools import lru_cache
 
 from interpolate import HermiteInterpolator
 from ode import WeakFormProblem1d
 
-from scipy.special import erf, erfinv
+from cache import lru_cache, disk
 
 class ProbabilityDistribution:
     parameters = []
@@ -206,6 +205,7 @@ class Expression:
 
     @classmethod
     @lru_cache
+    #@disk.cache
     def compiled_function(cls, deriv=0):
         """Compile the function so that it can be numerically evaluated with native python
         structures, if not already done so for this expression.
@@ -257,9 +257,6 @@ class Pseudodensity(Expression):
 class Density(Expression):
     arguments = [symbols.pseudodensity]
     parameters = [symbols.zeta, symbols.lamb, symbols.K]
-
-    # def __init__(self):
-    #     super().__init__()
 
     @classmethod
     @property
@@ -360,31 +357,10 @@ class Phi4Pseudopotential(Pseudopotential):
 class ActiveModelBSphericalInterface(WeakFormProblem1d):
     argument = sp.Symbol('r')
     density0, density1 = sp.symbols('phi0 phi1')
-    parameters = [#density0, density1,
-        density1,
+    parameters = [density1,
                   symbols.droplet_radius, symbols.domain_size,
                   symbols.zeta, symbols.lamb,
                   symbols.K, symbols.t, symbols.u, symbols.d]
-
-    # @classmethod
-    # @property
-    # def binodal(cls):
-    #     a, g = cls.a, cls.g
-    #     return sp.sqrt(-a/g)
-
-    # @classmethod
-    # @property
-    # def interfacial_width(cls):
-    #     return symbols.R
-
-    # @classmethod
-    # @property
-    # def domain_size(cls):
-    #     return 3*symbols.R
-
-    # @property
-    # def numerical_domain_size(self):
-    #     return sp.lambdify(self.parameters, self.domain_size)(*self.parameter_values)
 
     @classmethod
     @property
@@ -450,8 +426,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
     def boundary_conditions(cls):
         r, phi = cls.argument, cls.unknown_function
 
-        return {#(0, phi(r), cls.density0),
-                (0, phi(r).diff(r), 0),
+        return {(0, phi(r).diff(r), 0),
                 (symbols.droplet_radius, phi(r), 0),
                 (symbols.domain_size, phi(r), cls.density1),
                 (symbols.domain_size, phi(r).diff(r), 0)}
@@ -462,12 +437,25 @@ class ActiveDroplet(HermiteInterpolator):
                    domain_size=None, order=2,
                    x=None, npoints=50, interfacial_width=None, print_updates=None):
         if domain_size is None: domain_size = 5*R
-        if interfacial_width is None: interfacial_width = 0.1*R
+        if interfacial_width is None: interfacial_width = 0.5*R
 
         if x is None:
             xdist = SechSquaredDistribution(R, interfacial_width)
             #xdist = LogNormalDistribution(np.log(R), 0.25)
-            x = xdist.idf(np.linspace(0, xdist.cdf(domain_size), npoints))
+
+            # Generate points by the above distribution that contain the (i) origin, (ii) R
+            # and (iii) the domain size.
+            npoints_left = npoints//2
+            npoints_right = npoints - npoints_left
+            x = np.concatenate((np.linspace(0, xdist.cdf(R), npoints_left),
+                                np.linspace(xdist.cdf(R), xdist.cdf(domain_size), npoints_right+1)[1:]))
+            x = xdist.idf(x)
+
+            # Remove any rounding errors from the inverse distribution so we exactly obtain
+            # the three chosen points.
+            x[0] = 0
+            x[npoints_left-1] = R
+            x[-1] = domain_size
 
         guess = phi0 + (phi1 - phi0) * xdist.cumulative_distribution_function
         guess = guess.subs({p: v for p, v in zip(xdist.parameters, xdist.parameter_values)})
@@ -491,13 +479,15 @@ class ActiveDroplet(HermiteInterpolator):
     def solve(self, print_updates=None):
         constant_params = tuple(self.field_theory.pseudopotential.parameter_values + (self.field_theory.d,))
         problem = ActiveModelBSphericalInterface(self.phi1, self.R, self.domain_size, *constant_params)
-        self.weights = problem.solve(self.x, self.weights, print_updates=print_updates)
+        with np.errstate(all='raise'):
+            self.weights = problem.solve(self.x, self.weights, print_updates=print_updates)
 
     @property
     def domain_size(self):
         return self.x[-1]
 
-    def refine(self, refinement_tol, print_updates=None, max_iters=None, niters=0):
+    def refine(self, refinement_tol, print_updates=None, max_iters=None, niters=0,
+               max_points=int(1e5)):
         if max_iters and niters >= max_iters:
             raise RuntimeError('result not converging after %d mesh refinement iterations!' % niters)
 
@@ -510,20 +500,33 @@ class ActiveDroplet(HermiteInterpolator):
 
         if np.any(errors > refinement_tol):
             elements_to_split = errors > refinement_tol
+            print('splitting:', np.sum(elements_to_split))
             element_midpoints = 0.5*(self.x[1:] + self.x[:-1])
             new_x = element_midpoints[elements_to_split]
             new_x = np.sort( np.concatenate((I.x, new_x)) )
 
+            if new_x.size > max_points:
+                raise RuntimeError('possible singular behaviour - trying to create too many points (%d) during mesh refinement!' % len(new_x))
+
             _, order = self.weights.shape
             new_weights = np.empty((new_x.size, order))
             for c in range(order):
-                new_weights[:,c] = np.interp(new_x, self.x, self.weights[:,c])
+                new_weights[:,c] = self(new_x, c)
 
             drop = ActiveDroplet(self.field_theory, self.R, new_x, new_weights,
                                  print_updates=print_updates)
-            return drop.refine(refinement_tol, print_updates, max_iters, niters+1)
+            plt.plot(drop.x/drop.R, drop(drop.x), lw=0.5)
+            return drop.refine(refinement_tol, print_updates, max_iters, niters+1, max_points)
 
         return self
+
+    @property
+    def d(self):
+        return self.field_theory.d
+
+    @property
+    def pseudopotential(self):
+        return self.field_theory.pseudopotential
 
     @property
     def phi0(self):
@@ -545,10 +548,68 @@ class ActiveDroplet(HermiteInterpolator):
     def pseudopressure1(self):
         return self.pseudopressure(self.x[-1])
 
+    @classmethod
+    @property
+    @lru_cache
+    def chemical_potential_gradient_integrand_expression(cls):
+        phi = sp.Function('phi')
+        r = symbols.r
+        zeta, lamb, K, d = symbols.zeta, symbols.lamb, symbols.K, symbols.d
+
+        integrand = zeta * (d-1) * phi(r).diff(r)**2 / r
+        return integrand, phi, r
+
+    @property
+    def mu0(self):
+        integrand, phi, r = self.chemical_potential_gradient_integrand_expression
+        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
+                                                         self.pseudopotential.parameter_values)})
+        integrand = integrand.subs(symbols.d, self.d)
+
+        bulk_part = self.field_theory.free_energy_density(self.phi0, deriv=1) - self.field_theory.K*self(self.x[0],2)
+        confined_part = self.integrate(integrand, phi, r)
+        confined_part2 = self.analytic_integral((r*integrand).simplify(), phi, r)(self.x[-1]) / self.R
+        print(bulk_part, confined_part, confined_part2, bulk_part + confined_part, self.mu1)
+        return bulk_part + confined_part
+
+    @property
+    def mu1(self):
+        return self.field_theory.free_energy_density(self.phi1, deriv=1) - self.field_theory.K*self(self.x[-1],2)
+
+    @classmethod
+    @property
+    @lru_cache
+    def surface_tension_integrand_expression(cls):
+        phi = sp.Function('phi')
+        r = symbols.r
+        zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
+        phi0 = sp.Symbol('phi0')
+
+        s0_integrand = zeta * sp.exp( phi0 * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
+        s1_integrand = -2*lamb * sp.exp( phi(r) * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
+        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) * K / (zeta - 2*lamb)
+
+        # The expression is numerically unstable as the activity coefficients cancel out,
+        # so we switch to a Taylor series expansion there:
+        order, threshold = 4, 1e-4
+        expansion = integrand.series(symbols.zeta, 2*symbols.lamb, order).removeO().simplify()
+        integrand = sp.Piecewise( (expansion, sp.Abs(symbols.zeta - 2*symbols.lamb) < threshold),
+                                  (integrand, True) )
+
+        return sp.Lambda(phi0, integrand)
+
+    @property
+    def surface_tension_integrand(self):
+        integrand = self.surface_tension_integrand_expression
+        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
+                                                         self.pseudopotential.parameter_values)})
+        integrand = integrand.subs(symbols.d, self.d)
+        return integrand
+
     @property
     @lru_cache
     def pseudopressure_drop(self):
-        integrand = self.field_theory.surface_tension_integrand(self.phi1)
+        integrand = self.surface_tension_integrand(self.phi0)
         phi, r = sp.Function('phi'), symbols.r
         return self.integrate(integrand, phi, r)
 
@@ -571,6 +632,10 @@ class ActiveModelBPlus:
     def lamb(self):
         return self.pseudopotential.parameter_values[1]
 
+    @property
+    def K(self):
+        return self.pseudopotential.parameter_values[2]
+
     def bulk_pseudopressure(self, phi):
         return self.pseudodensity(phi)*self.free_energy_density(phi, deriv=1) - self.pseudopotential(phi)
 
@@ -589,38 +654,11 @@ class ActiveModelBPlus:
 
         return phi
 
-    @classmethod
-    @property
-    @lru_cache
-    def surface_tension_integrand_expression(cls):
-        phi = sp.Function('phi')
-        r = symbols.r
-        zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
-        phi1 = sp.Symbol('phi1')
-
-        s0_integrand = zeta * sp.exp( phi1 * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) * K / (zeta - 2*lamb)
-
-        # The expression is numerically unstable as the activity coefficients cancel out,
-        # so we switch to a Taylor series expansion there:
-        order, threshold = 4, 1e-4
-        expansion = integrand.series(symbols.zeta, 2*symbols.lamb, order).removeO().simplify()
-        integrand = sp.Piecewise( (expansion, sp.Abs(symbols.zeta - 2*symbols.lamb) < threshold),
-                                  (integrand, True) )
-
-        return sp.Lambda(phi1, integrand)
-
-    @property
-    def surface_tension_integrand(self):
-        integrand = self.surface_tension_integrand_expression
-        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
-                                                         self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
-        return integrand
-
-    def droplet(self, R, domain_size=None, order=2, refinement_tol=1e-4, print_updates=None):
-        phi1, phi0 = self.bulk_binodals
+    def droplet(self, R, domain_size=None, order=2, refinement_tol=1e-4, print_updates=None,
+                phi1=None):
+        bulk_phi = self.bulk_binodals
+        if phi1 is None: phi1 = bulk_phi[1]
+        phi0 = bulk_phi[np.argmax(np.abs(bulk_phi - phi1))]
 
         initial_droplet = lambda p: ActiveDroplet.from_guess(self, R, phi0, p,
                                                              domain_size=domain_size,
@@ -655,16 +693,55 @@ if __name__ == '__main__':
 
     K, t, u = 1, -0.25, 0.25
     constant_parameters = (K, t, u)
-
     R = 10
-    for zeta, lamb in [(0, 0), (-4, -1), (4, 1)]:
 
+    zeta, lamb = -4, -1
+    #zeta, lamb = 0, 0
+    model = ActiveModelBPlus(zeta, lamb, *constant_parameters)
+
+    try: drop = model.droplet(R, refinement_tol=1e-4, phi1=-0.9)
+    except Exception as e:
+        print(e)
+        plt.show()
+        #raise e from None
+        import sys; sys.exit(0)
+
+    plt.axvline(x=1, ls='dashed', lw=0.5)
+    plt.axhline(y=0, ls='dashed', lw=0.5)
+    P0, P1 = drop.pseudopressure0, drop.pseudopressure1
+    mu0, mu1 = drop.mu0, drop.mu1
+    S = drop.pseudopressure_drop
+    print('z=%g l=%g: phi=[%.4f->%.4f] mu=[%.4f->%.4f] P=[%.4f->%.4f] S=%.4f dP=%.4f' % (zeta, lamb, drop.phi0, drop.phi1, mu0, mu1, P0, P1, S, P0-P1))
+    xx = np.linspace(np.min(drop.x), np.max(drop.x), 1001)
+    plt.plot(xx/R, drop(xx), '-', lw=0.5)
+    plt.show()
+    import sys; sys.exit(0)
+
+    phi1 = np.linspace(-0.9, -1.2, 21)
+    dP = np.empty(phi1.shape)
+    S = np.empty(phi1.shape)
+    for i, p in enumerate(phi1):
+        print(p)
+        drop = model.droplet(R, phi1=p)
+        dP[i] = drop.pseudopressure0 - drop.pseudopressure1
+        S[i] = drop.pseudopressure_drop
+        print('%.4f %.4g %.4g' % (p, dP[i], S[i]))
+
+    plt.plot(phi1, dP, label=r'$\delta P$')
+    plt.plot(phi1, S, label=r'$S$')
+    plt.legend(loc='best')
+
+    plt.show()
+    import sys; sys.exit(0)
+
+    for zeta, lamb in [(0, 0), (-4, -1), (4, 1)]:
         model = ActiveModelBPlus(zeta, lamb, *constant_parameters)
         drop = model.droplet(R)
 
         P0, P1 = drop.pseudopressure0, drop.pseudopressure1
+        mu0, mu1 = drop.mu0, drop.mu1
         S = drop.pseudopressure_drop
-        print('z=%g l=%g:' % (zeta, lamb), P0, P1, S, P0-P1)
+        print('z=%g l=%g: phi=[%.4f->%.4f] mu=[%.4f->%.4f] P=[%.4f->%.4f] S=%.4f dP=%.4f' % (zeta, lamb, drop.phi0, drop.phi1, mu0, mu1, P0, P1, S, P0-P1))
 
         xx = np.linspace(np.min(drop.x), np.max(drop.x), 1001)
 

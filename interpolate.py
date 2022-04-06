@@ -256,8 +256,8 @@ class HermiteInterpolator:
         num_nodes, self.order = shape
         assert len(nodes) == num_nodes
 
-        self.nodes = nodes
-        self.weights = weights
+        self.nodes = nodes.copy()
+        self.weights = weights.copy()
 
         self.interpolating_polynomial = HermiteInterpolatingPolynomial.from_cache(self.order)
 
