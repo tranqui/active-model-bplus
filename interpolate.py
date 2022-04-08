@@ -318,14 +318,97 @@ class HermiteInterpolator:
 
         return f(x, xleft, xright, *weights.T)
 
-    def integrate(self, f, u=sp.Function('f'), arg=None):
+    def evaluate(self, f, u=sp.Function('f'), arg=None, singularity_at_origin=False):
         """
-        Numerically integrates a function over the whole domain.
+        Evaluate function on domain.
 
         Args:
-            f: function to integrate over. Should be a function of arg.
+            f: function to evaluate. Should be a function of u(arg) and arg.
             u: symbol used for interpolated function
             arg: symbol used for argument of f. If None then will assume our local variable symbol.
+            singularity_at_origin: if True then will take the limit of f at the first node
+        Returns:
+            HermiteInterpolator object for the interpolated analytic solution.
+        """
+        if arg is None: arg = self.local_variable
+
+        polynomial = self.interpolating_polynomial
+        expr = f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression)).doit()
+
+        xleft, xright = self.x[:-1], self.x[1:]
+        weights = np.hstack((self.weights[:-1], self.weights[1:]))
+        result = np.empty(self.weights.shape)
+
+        # We need to be careful to apply L'Hopital's rule if there is a singularity at the origin.
+        if singularity_at_origin:
+            eps = 1e-6
+            singular_weights = weights[0].copy()
+            is_zero = np.where(singular_weights < eps)[0]
+            singular_weights[is_zero] = 0
+
+        for c in range(self.order):
+            specific_expr = expr.diff(arg, c)
+            compiled_expr = sp.lambdify([arg, polynomial.x0, polynomial.x1] + self.local_node_variables, specific_expr)
+            result[1:,c] = compiled_expr(xright, xleft, xright, *weights.T)
+
+            if singularity_at_origin:
+                singular_f = f.diff(arg, c).simplify()
+                terms = []
+
+                # Remove divergence from singular terms.
+                for term in singular_f.as_ordered_terms():
+                    numerator, denominator = sp.fraction(term)
+                    divergent = (1/denominator).subs(arg, 0) == sp.zoo
+
+                    # Apply L'Hopital's rule:
+                    if divergent:
+                        # Assume it's not an essential pole so we can extract power easily.
+                        order = sp.degree(denominator, gen=arg)
+                        assert order.is_number and order > 0
+                        numerator = numerator.diff(arg, order)
+                        denominator = denominator.diff(arg, order)
+
+                    # Zero those terms which are vanishing.
+                    for z in is_zero:
+                        derivative = u(arg).diff(arg, z)
+                        numerator = numerator.replace(derivative, 0)
+
+                    term = numerator/denominator
+                    terms += [term]
+
+                singular_f = sum(terms)
+                singular_f = singular_f.simplify()
+
+                # Substitute in local basis functions.
+                singular_expr = singular_f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression)).doit()
+                singular_expr = singular_expr.subs({var: val for var, val in zip(self.local_node_variables, singular_weights)})
+                singular_expr = singular_expr.subs({polynomial.x0: xleft[0],
+                                                    polynomial.x1: xright[0]})
+
+                result[0,c] = singular_expr.subs(arg, xleft[0])
+            else:
+                result[0,c] = compiled_expr(xleft[0], xleft[0], xright[0], *weights[0])
+
+        return HermiteInterpolator(self.nodes, result)
+
+    def numerical_integral(self, f, u=sp.Function('f'), arg=None):
+        """
+        Numerically calculates a definite integral of a function within the domain,
+        from the left-most boundary up to an arbitrary point within the domain, i.e.
+
+            F(x) = \int_{x_0}^x f(y) dy
+
+        for x < x_1. More general definite integrals over [a,b] can then be obtained by
+        evaluating F(b) - F(a).
+
+        Numerical integration occurs via Gaussian quadrature across each finite element.
+
+        Args:
+            f: function to integrate over. Should be a function of u(arg) and arg.
+            u: symbol used for interpolated function
+            arg: symbol used for argument of f. If None then will assume our local variable symbol.
+        Returns:
+            HermiteInterpolator object for the interpolated integral.
         """
         if arg is None: arg = self.local_variable
 
@@ -348,7 +431,35 @@ class HermiteInterpolator:
 
         xleft, xright = self.x[:-1], self.x[1:]
         weights = np.hstack((self.weights[:-1], self.weights[1:]))
-        return np.sum(integrator(xleft, xright, *weights.T))
+        integral_per_element = integrator(xleft, xright, *weights.T)
+
+        # Sometimes the integrals evaluate to a constant (normally zero), in which case
+        # we must buffer it out as a vector to prevent subsequent type errors.
+        if np.isscalar(integral_per_element):
+            integral_per_element = [integral_per_element]*len(xleft)
+
+        cumsum = np.cumsum(np.concatenate(([0], integral_per_element)))
+        # result_weights = np.empty(self.weights.shape)
+        # result_weights[:,0] = cumsum
+        # for c in range(1, self.order):
+        #     derivative = f.diff(arg, c)
+        #     compiled_f = sp.lambdify([arg, polynomial.x0, polynomial.x1] + self.local_node_variables, derivative)
+        #     result_weights[:,c] =
+        result_weights = cumsum.reshape(-1,1)
+
+        return HermiteInterpolator(self.nodes, result_weights)
+
+    def integrate(self, f, u=sp.Function('f'), arg=None):
+        """
+        Numerically integrates a function over the whole domain.
+
+        Args:
+            f: function to integrate over. Should be a function of u(arg) and arg.
+            u: symbol used for interpolated function
+            arg: symbol used for argument of f. If None then will assume our local variable symbol.
+        """
+        I = self.numerical_integral(f, u, arg)
+        return I(self.x[-1])
 
     @classmethod
     @lru_cache
@@ -388,19 +499,13 @@ class HermiteInterpolator:
         integrated analytically, or else this will fail.
 
         Args:
-            f: function to integrate over. Should be a function of arg.
+            f: function to integrate over. Should be a function of u(arg) and arg.
             u: symbol used for interpolated function
             arg: symbol used for argument of f. If None then will assume our local variable symbol.
         Returns:
-            HermiteInterpolator object for the interpolated analytic solution.
+            HermiteInterpolator object for the interpolated integral.
         """
-        # if arg is None: arg = self.local_variable
 
-        # polynomial = self.interpolating_polynomial
-        # integrand = f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression)).simplify()
-        # expr = integrand.integrate((arg, polynomial.x0, self.local_variable)).doit()
-
-        # variables = [polynomial.x0, polynomial.x1] + self.local_node_variables
         xleft, xright = self.x[:-1], self.x[1:]
         weights = np.hstack((self.weights[:-1], self.weights[1:]))
 
