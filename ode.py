@@ -56,6 +56,12 @@ class WeakFormProblem1d:
     def natural_boundary_condition(cls):
         return
 
+    # Options to turn on/off natural boundary conditions on each boundary.
+    # Use case: turning off e.g. left boundary in polar coordinates when it is not a real
+    #           boundary condition.
+    boundary_left = True
+    boundary_right = True
+
     @classmethod
     @property
     def boundary_conditions(cls):
@@ -257,8 +263,10 @@ class WeakFormProblem1d:
             left, right = self.compiled_natural_boundary_condition_expressions(order)
             for c, (l, r) in enumerate(zip(left, right)):
                 with np.errstate(divide='raise'):
-                    R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
-                    R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
+                    if self.boundary_left:
+                        R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
+                    if self.boundary_right:
+                        R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
 
         # Evaluate residual contributions from specific boundary conditions.
         element_edges = nodes[:-1]
@@ -336,18 +344,19 @@ class WeakFormProblem1d:
         if self.natural_boundary_condition:
             left, right = self.compiled_natural_boundary_condition_jacobians(order)
             for c, (l, r) in enumerate(zip(left, right)):
-                l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
-                r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
-
                 starting_row = len(J)-1-len(variables)
                 eqn = -2*order+c
-                rows = np.arange(starting_row, starting_row+len(l)) % len(J)
-                J[rows, eqn] += r
+                if self.boundary_right:
+                    r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
+                    rows = np.arange(starting_row, starting_row+len(r)) % len(J)
+                    J[rows, eqn] += r
 
                 eqn = c
                 starting_row -= order
-                rows = np.arange(starting_row, starting_row+len(l)) % len(J)
-                J[rows, eqn] += l
+                if self.boundary_left:
+                    l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
+                    rows = np.arange(starting_row, starting_row+len(l)) % len(J)
+                    J[rows, eqn] += l
 
         # Apply boundary conditions.
         element_edges = nodes[:-1]
