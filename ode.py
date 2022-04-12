@@ -10,6 +10,10 @@ import differentiate
 
 from cache import lru_cache, disk
 
+import sys
+# print_compilation_updates = None
+print_compilation_updates = sys.stderr
+
 class WeakFormProblem1d:
     argument = sp.Symbol('x')
     unknown_function = sp.Function('unknown_function')
@@ -25,6 +29,11 @@ class WeakFormProblem1d:
         """
         assert len(args) is len(self.parameters)
         self.parameter_values = args
+
+    @classmethod
+    @property
+    def name(cls):
+        return cls.__name__
 
     @classmethod
     @property
@@ -112,12 +121,18 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_natural_boundary_condition_expressions(cls, order=1, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling natural boundary conditions...' % cls.name)
+            print_compilation_updates.flush()
+
         expressions = cls.natural_boundary_condition_expressions(order, *args, **kwargs)
         compiled_expressions = []
 
         arguments = cls.elemental_variables(order)
         for boundary in expressions: # loop over left and right expressions
             compiled_expressions += [[sp.lambdify(arguments, e) for e in boundary]]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_expressions
 
     @classmethod
@@ -134,6 +149,10 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_natural_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling natural boundary Jacobians...' % cls.name)
+            print_compilation_updates.flush()
+
         compiled_jacobians = []
         left, right = cls.natural_boundary_condition_jacobians(order, *args, **kwargs)
         for jacobians in [left, right]:
@@ -144,6 +163,8 @@ class WeakFormProblem1d:
                     compiled_row += [sp.lambdify(cls.elemental_variables(order), expression)]
                 boundary_jacobians += [compiled_row]
             compiled_jacobians += [boundary_jacobians]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_jacobians
 
     @classmethod
@@ -166,12 +187,18 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_boundary_condition_expressions(cls, order=1, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling boundary conditions...' % cls.name)
+            print_compilation_updates.flush()
+
         expressions = cls.boundary_condition_expressions(order, *args, **kwargs)
         compiled_expressions = []
 
         arguments = cls.elemental_variables(order)
         for point, expression in expressions:
             compiled_expressions += [(point, sp.lambdify(arguments, expression))]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_expressions
 
     @classmethod
@@ -187,6 +214,10 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling boundary Jacobians...' % cls.name)
+            print_compilation_updates.flush()
+
         jacobians = cls.boundary_condition_jacobians(order, *args, **kwargs)
         compiled_jacobians = []
         for point, row in jacobians:
@@ -194,6 +225,8 @@ class WeakFormProblem1d:
             for expression in row:
                 compiled_row += [sp.lambdify(cls.elemental_variables(order), expression)]
             compiled_jacobians += [(point, compiled_row)]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_jacobians
 
     @classmethod
@@ -229,10 +262,16 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_elemental_residuals(cls, order, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling main residuals...' % cls.name)
+            print_compilation_updates.flush()
+
         residuals = cls.elemental_residuals(order, *args, **kwargs)
         compiled_residuals = []
         for expression in residuals:
             compiled_residuals += [sp.lambdify(cls.elemental_variables(order), expression)]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_residuals
 
     def residuals(self, nodes, weights, *args, **kwargs):
@@ -306,6 +345,10 @@ class WeakFormProblem1d:
     @lru_cache
     #@disk.cache
     def compiled_elemental_jacobians(cls, order, *args, **kwargs):
+        if print_compilation_updates:
+            print_compilation_updates.write('%s: compiling main Jacobians...' % cls.name)
+            print_compilation_updates.flush()
+
         jacobians = cls.elemental_jacobians(order, *args, **kwargs)
         compiled_jacobians = []
         for row in jacobians:
@@ -313,6 +356,8 @@ class WeakFormProblem1d:
             for expression in row:
                 compiled_row += [sp.lambdify(cls.elemental_variables(order), expression)]
             compiled_jacobians += [compiled_row]
+
+        if print_compilation_updates: print_compilation_updates.write(' done.\n')
         return compiled_jacobians
 
     def jacobian(self, nodes, weights, *args, **kwargs):
@@ -418,23 +463,59 @@ class WeakFormProblem1d:
                 Jfull[i, j] = J[u + i - j, j]
         return Jfull
 
-    def solve(self, nodes, weights, atol=1e-6, max_iters=10, print_updates=None):
+    def solve(self, nodes, weights, atol=1e-8, rtol=1e-8, max_iters=10, print_updates=None):
         nelements, order = weights.shape
         nelements -= 1
 
         R = self.residuals(nodes, weights)
+        assert nodes.size == nelements+1
+        assert R.size == order*(nelements+1)
 
         iters = 0
         if print_updates:
-            print_updates.write('iter residuals\n%r %r\n' % (iters, R))
+            update = lambda R: np.hstack((nodes.reshape(-1,1), R.reshape(-1,order)))
+            print_updates.write('iter residuals\n%r %r\n' % (iters, update(R)))
 
-        while np.linalg.norm(R) > atol and iters < max_iters:
+        while np.any(np.abs(R) > atol):
+            if iters >= max_iters:
+                import sys
+                sys.stderr.write('residuals: %r\n' % R)
+
+                import matplotlib.pyplot as plt
+                plt.figure()
+                plt.plot(nodes, R.reshape(nodes.size,-1), lw=0.5)
+                plt.title('residuals')
+
+                plt.figure()
+                plt.plot(nodes, delta, lw=0.5)
+                plt.title('delta')
+
+                plt.figure()
+                pl, = plt.plot(nodes, weights[:,0], '.')
+                xx = np.linspace(nodes[0], nodes[-1], 1000)
+                f = HermiteInterpolator(nodes, weights)
+                plt.plot(xx, f(xx), lw=0.5, c=pl.get_color())
+                plt.title('current solution')
+
+                plt.show()
+                raise RuntimeError('did not converge during ODE solve step after %d iters!' % iters)
+
             J = self.jacobian(nodes, weights)
 
-            weights = weights + solve_banded((order+1, order+1), J, -R).reshape(weights.shape)
+            delta = solve_banded((order+1, order+1), J, -R).reshape(weights.shape)
+            # from scipy.optimize import line_search
+            # line_search(obj_func, obj_grad, start_point, search_gradient)
+            if print_updates: print_updates.write('%r delta=%r\n' % (iters, delta))
+            weights += delta
+
             R = self.residuals(nodes, weights)
             iters += 1
-            if print_updates: print_updates.write('%r %r\n' % (iters, R))
+            if print_updates: print_updates.write('%r R=%r\n' % (iters, update(R)))
+
+            # relative_change = np.divide(delta, weights)
+            # relative_change[~np.isfinite(relative_change)] = 0
+            #import sys; sys.stderr.write('%d %.4g\n' % (iters, np.linalg.norm(relative_change)))
+            if np.linalg.norm(delta) < rtol: break
 
         if print_updates:
             print_updates.write('\nsolution:\n%r\n' % np.hstack([nodes.reshape(-1,1),weights]))
@@ -475,12 +556,12 @@ class GinzburgLandauFlatInterface(WeakFormProblem1d):
     @property
     def interfacial_width(cls):
         a, k = cls.a, cls.k
-        return sp.sqrt(-k/(2*a))
+        return sp.sqrt(-2*k/a)
 
     @classmethod
     @property
     def domain_size(cls):
-        return 25*cls.interfacial_width
+        return 10*cls.interfacial_width
 
     @property
     def numerical_domain_size(self):
@@ -527,23 +608,14 @@ if __name__ == '__main__':
     np.set_printoptions(4, suppress=True, linewidth=10000)
 
     p = GinzburgLandauFlatInterface(-0.25, 0.25, 1)
-    print(p.analytic_solution)
+    print('   solving ODE:', p.strong_form)
+    print('exact solution:', p.analytic_solution)
 
     x = p.numerical_domain_size * np.linspace(-1, 1, 100)**3
     w = np.zeros((len(x), 2))
     w[:,0] = np.linspace(-1, 1, len(w))
 
-    # J1 = p.numerical_jacobian(x, w)
-    # J = p.jacobian(x, w)
-    # J2 = p.full_jacobian(J)
-
-    # print(J1)
-    # print()
-    # print(J2)
-    # print()
-    # print(J1-J2)
-
-    w = p.solve(x, w, print_updates=sys.stderr)
+    w = p.solve(x, w, print_updates=sys.stderr, max_iters=10)
     f = HermiteInterpolator(x, w)
     pl, = plt.plot(x, w[:,0], 'o', mfc='None')
 
@@ -551,4 +623,10 @@ if __name__ == '__main__':
     plt.plot(xx, f(xx), '-', c=pl.get_color())
     try: plt.plot(xx, p.exact_solution(xx), '--')
     except: plt.plot(xx, [p.exact_solution(xx)]*len(xx), '--')
+    plt.title('$\phi^4$ kink')
+
+    plt.figure()
+    plt.plot(xx, p.exact_solution(xx) - f(xx))
+    plt.title('errors')
+
     plt.show()

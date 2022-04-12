@@ -246,7 +246,7 @@ class HermiteInterpolator:
     boundaries. This is helpful for representing finite element solutions to ODEs where
     continuity of derivatives is required."""
 
-    def __init__(self, nodes, weights):#, xvar=None, u=None):
+    def __init__(self, nodes, weights, **kwargs):#, xvar=None, u=None):
         try:
             shape = weights.shape
         except:
@@ -318,7 +318,7 @@ class HermiteInterpolator:
 
         return f(x, xleft, xright, *weights.T)
 
-    def evaluate(self, f, u=sp.Function('f'), arg=None, x=None, singularity_at_origin=False):
+    def evaluate(self, f, u=sp.Function('f'), arg=None, order=None, x=None, singularity_at_origin=False):
         """
         Evaluate function on domain.
 
@@ -326,6 +326,8 @@ class HermiteInterpolator:
             f: function to evaluate. Should be a function of u(arg) and arg.
             u: symbol used for interpolated function
             arg: symbol used for argument of f. If None then will assume our local variable symbol.
+            order: order of resulting (interpolated) function (order > 1 involves evaluation of
+                   derivatives of f). If None then will take order of interpolating function u.
             x: locations to evaluate function on. If None will default to interpolation nodes.
             singularity_at_origin: if True then will take the limit of f at the first node
         Returns:
@@ -333,6 +335,7 @@ class HermiteInterpolator:
         """
         if arg is None: arg = self.local_variable
         if x is None: x = self.x
+        if order is None: order = self.order
 
         # Determine which element each coordinate is in so we use the correct local polynomial.
         elements = self.find_element(x)
@@ -349,8 +352,8 @@ class HermiteInterpolator:
             is_zero = np.where(singular_weights < eps)[0]
             singular_weights[is_zero] = 0
 
-        result = np.empty((x.size, self.order))
-        for c in range(self.order):
+        result = np.empty((x.size, order))
+        for c in range(order):
             specific_expr = expr.diff(arg, c)
             compiled_expr = sp.lambdify([arg, polynomial.x0, polynomial.x1] + self.local_node_variables, specific_expr)
             result[1:,c] = compiled_expr(x[1:], xleft[1:], xright[1:], *weights[1:].T)
@@ -367,10 +370,10 @@ class HermiteInterpolator:
                     # Apply L'Hopital's rule:
                     if divergent:
                         # Assume it's not an essential pole so we can extract power easily.
-                        order = sp.degree(denominator, gen=arg)
-                        assert order.is_number and order > 0
-                        numerator = numerator.diff(arg, order)
-                        denominator = denominator.diff(arg, order)
+                        o = sp.degree(denominator, gen=arg)
+                        assert o.is_number and o > 0
+                        numerator = numerator.diff(arg, o)
+                        denominator = denominator.diff(arg, o)
 
                     # Zero those terms which are vanishing.
                     for z in is_zero:
@@ -443,12 +446,6 @@ class HermiteInterpolator:
             integral_per_element = [integral_per_element]*len(xleft)
 
         cumsum = np.cumsum(np.concatenate(([0], integral_per_element)))
-        # result_weights = np.empty(self.weights.shape)
-        # result_weights[:,0] = cumsum
-        # for c in range(1, self.order):
-        #     derivative = f.diff(arg, c)
-        #     compiled_f = sp.lambdify([arg, polynomial.x0, polynomial.x1] + self.local_node_variables, derivative)
-        #     result_weights[:,c] =
         result_weights = cumsum.reshape(-1,1)
 
         return HermiteInterpolator(self.nodes, result_weights)
