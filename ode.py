@@ -463,7 +463,9 @@ class WeakFormProblem1d:
                 Jfull[i, j] = J[u + i - j, j]
         return Jfull
 
-    def solve(self, nodes, weights, atol=1e-8, rtol=1e-8, max_iters=10, print_updates=None):
+    def solve(self, nodes, weights,
+              newton_atol=1e-8, newton_rtol=1e-8, max_newton_iters=10,
+              print_updates=None, **kwargs):
         nelements, order = weights.shape
         nelements -= 1
 
@@ -476,28 +478,28 @@ class WeakFormProblem1d:
             update = lambda R: np.hstack((nodes.reshape(-1,1), R.reshape(-1,order)))
             print_updates.write('iter residuals\n%r %r\n' % (iters, update(R)))
 
-        while np.any(np.abs(R) > atol):
-            if iters >= max_iters:
-                import sys
-                sys.stderr.write('residuals: %r\n' % R)
+        while np.any(np.abs(R) > newton_atol):
+            if iters >= max_newton_iters:
+                # import sys
+                # sys.stderr.write('residuals: %r\n' % R)
 
-                import matplotlib.pyplot as plt
-                plt.figure()
-                plt.plot(nodes, R.reshape(nodes.size,-1), lw=0.5)
-                plt.title('residuals')
+                # import matplotlib.pyplot as plt
+                # plt.figure()
+                # plt.plot(nodes, R.reshape(nodes.size,-1), lw=0.5)
+                # plt.title('residuals')
 
-                plt.figure()
-                plt.plot(nodes, delta, lw=0.5)
-                plt.title('delta')
+                # plt.figure()
+                # plt.plot(nodes, delta, lw=0.5)
+                # plt.title('delta')
 
-                plt.figure()
-                pl, = plt.plot(nodes, weights[:,0], '.')
-                xx = np.linspace(nodes[0], nodes[-1], 1000)
-                f = HermiteInterpolator(nodes, weights)
-                plt.plot(xx, f(xx), lw=0.5, c=pl.get_color())
-                plt.title('current solution')
+                # plt.figure()
+                # pl, = plt.plot(nodes, weights[:,0], '.')
+                # xx = np.linspace(nodes[0], nodes[-1], 1000)
+                # f = HermiteInterpolator(nodes, weights)
+                # plt.plot(xx, f(xx), lw=0.5, c=pl.get_color())
+                # plt.title('current solution')
 
-                plt.show()
+                # plt.show()
                 raise RuntimeError('did not converge during ODE solve step after %d iters!' % iters)
 
             J = self.jacobian(nodes, weights)
@@ -515,7 +517,7 @@ class WeakFormProblem1d:
             # relative_change = np.divide(delta, weights)
             # relative_change[~np.isfinite(relative_change)] = 0
             #import sys; sys.stderr.write('%d %.4g\n' % (iters, np.linalg.norm(relative_change)))
-            if np.linalg.norm(delta) < rtol: break
+            if np.linalg.norm(delta) < newton_rtol: break
 
         if print_updates:
             print_updates.write('\nsolution:\n%r\n' % np.hstack([nodes.reshape(-1,1),weights]))
@@ -615,7 +617,7 @@ if __name__ == '__main__':
     w = np.zeros((len(x), 2))
     w[:,0] = np.linspace(-1, 1, len(w))
 
-    w = p.solve(x, w, print_updates=sys.stderr, max_iters=10)
+    w = p.solve(x, w, print_updates=sys.stderr, max_newton_iters=10)
     f = HermiteInterpolator(x, w)
     pl, = plt.plot(x, w[:,0], 'o', mfc='None')
 

@@ -14,7 +14,7 @@ def test_droplet(zeta, lamb, R, phi0, phi1, K=1, t=-0.25, u=0.25, guess_drop=Non
                  order=2, refinement_tol=1e-4, print_updates=None):
     model = droplet_model(zeta, lamb, K, t, u)
     try:
-        drop = model.droplet(R, order=order, refinement_tol=refinement_tol, phi0=phi0, phi1=phi1, guess=guess_drop, print_updates=print_updates)
+        drop = model.droplet(R, order=order, refinement_tol=refinement_tol, phi0=phi0, phi1=phi1, guess=guess_drop, optimise_chemical_potential=False, print_updates=print_updates)
         print(drop.summary)
         return drop
     except Exception as e:
@@ -174,17 +174,18 @@ def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2):
     drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=1e-2*refinement_tol)
     droplet = lambda p: test_droplet(zeta, lamb, R, phi0, p, refinement_tol=refinement_tol, guess_drop=drop0)
 
-    drop_residual = lambda drop: drop.mu1 - drop.mu0
-    #drop_residual = lambda drop: (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
-    residual = lambda p: drop_residual(droplet(p))
+    current_drop = drop0
+    def residual(phi):
+        nonlocal current_drop
+        current_drop = droplet(phi)
+        #return (current_drop.mu1 - current_drop.mu0)**2 #+ (current_drop.pseudopressure0 - current_drop.pseudopressure1 - current_drop.pseudopressure_drop)**2
+        return current_drop.mu1 - current_drop.mu0
 
     phi1 = newton_krylov(residual, phi1_guess)
     #from scipy.optimize import minimize
     #phi1 = minimize(residual, phi1_guess).x
     print('final phi1: %.8g' % phi1)
-
-    return droplet(phi1)
-    # test_plot([drop])
+    return current_drop
     
 def test_errors(zeta=0, lamb=-1, R=100, order=2, print_updates=None):
     model = droplet_model(zeta, lamb)

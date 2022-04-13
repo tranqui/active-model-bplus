@@ -127,13 +127,13 @@ class SechSquaredDistribution(ProbabilityDistribution):
 
 class ActiveDroplet(HermiteInterpolator):
     @classmethod
-    def from_guess(cls, field_theory, R, phi0, phi1,
-                   domain_size=None, order=2,
-                   x=None, npoints=51, interfacial_width=None, print_updates=None):
+    def from_guess(cls, field_theory, R, phi0, phi1, domain_size=None, order=2,
+                   xsample=None, npoints=51, interfacial_width=None, **kwargs):
+        """Possible kwargs are arguments to ActiveDroplet.__init__."""
         if domain_size is None: domain_size = 5*R
         if interfacial_width is None: interfacial_width = field_theory.passive_bulk_interfacial_width
 
-        if x is None:
+        if xsample is None:
             xdist = SechDistribution(R, interfacial_width)
             #xdist = SechSquaredDistribution(R, interfacial_width)
             #xdist = LogNormalDistribution(np.log(R), 0.25)
@@ -145,33 +145,34 @@ class ActiveDroplet(HermiteInterpolator):
             npoints_right = ncentral_points - npoints_left
             x0 = np.concatenate((np.linspace(xdist.cdf(R-l), xdist.cdf(R), npoints_left),
                                  np.linspace(xdist.cdf(R), xdist.cdf(R+l), npoints_right+1)[1:]))
-            x = xdist.idf(x0)
-            x[0] = R-l
-            x[-1] = R+l
+            xsample = xdist.idf(x0)
+            xsample[0] = R-l
+            xsample[-1] = R+l
 
             # Generate some points left and right of the boundary region.
             if l == R: npoints_left = 0
             else: npoints_left = (npoints - ncentral_points)//2
             npoints_right = npoints - ncentral_points - npoints_left
-            xleft = np.linspace(0, x[0], npoints_left+1)[:-1]
-            xright = np.linspace(x[-1], domain_size, npoints_right+1)[1:]
-            x = np.concatenate((xleft, x, xright))
+            xleft = np.linspace(0, xsample[0], npoints_left+1)[:-1]
+            xright = np.linspace(xsample[-1], domain_size, npoints_right+1)[1:]
+            xsample = np.concatenate((xleft, xsample, xright))
 
         guess = phi0 + (phi1 - phi0) * xdist.cumulative_distribution_function
         guess = guess.subs({p: v for p, v in zip(xdist.parameters, xdist.parameter_values)})
 
-        weights = np.zeros((len(x), order))
+        weights = np.zeros((len(xsample), order))
         for c in range(order):
             f = guess.diff(xdist.argument, c)
             f = sp.lambdify(xdist.argument, f)
             with np.errstate(invalid='ignore', divide='ignore'):
-                weights[:,c] = sp.lambdify(xdist.argument, guess.diff(xdist.argument, c))(x)
+                weights[:,c] = sp.lambdify(xdist.argument, guess.diff(xdist.argument, c))(xsample)
         weights[~np.isfinite(weights)] = 0
 
-        drop = cls(field_theory, R, x, weights, print_updates=print_updates, max_iters=20)
+        drop = cls(field_theory, R, xsample, weights, **kwargs)
         return drop
 
     def __init__(self, field_theory, R, *args, phi1=None, print_updates=None, **kwargs):
+        """Possible kwargs are arguments to ode.WeakFormProblem1d.__init__."""
         self.field_theory = field_theory
         self.R = R
         super().__init__(*args, **kwargs)
@@ -200,10 +201,10 @@ class ActiveDroplet(HermiteInterpolator):
     def domain_size(self):
         return self.x[-1]
 
-    def refine(self, refinement_tol, print_updates=None,
-               max_newton_steps=20, newton_atol=1e-8, newton_rtol=1e-8,
-               max_refinement_steps=None, nrefinement_steps=0, max_points=int(1e6)):
-        if max_refinement_steps and nrefinement_steps >= max_refinement_steps:
+    def refine(self, refinement_tol=1e-2, max_refinement_iters=None, nrefinement_iters=0,
+               max_points=int(1e6), **kwargs):
+        """Possible kwargs are arguments to ActiveDroplet.__init__."""
+        if max_refinement_iters and nrefinement_iters >= max_refinement_iters:
             raise RuntimeError('result not converging after %d mesh refinement iterations!' % niters)
 
         f = sp.Function('f')
@@ -238,12 +239,8 @@ class ActiveDroplet(HermiteInterpolator):
             for c in range(order):
                 new_weights[:,c] = self(new_x, c)
 
-            drop = ActiveDroplet(self.field_theory, self.R, new_x, new_weights,
-                                 max_iters=max_newton_steps, atol=newton_atol, rtol=newton_rtol,
-                                 print_updates=print_updates)
-            return drop.refine(refinement_tol, print_updates,
-                               max_newton_steps, newton_atol, newton_rtol,
-                               max_refinement_steps, nrefinement_steps+1, max_points)
+            drop = ActiveDroplet(self.field_theory, self.R, new_x, new_weights, **kwargs)
+            return drop.refine(refinement_tol, max_refinement_iters, nrefinement_iters+1, max_points, **kwargs)
 
         return self
 
@@ -406,27 +403,37 @@ class ActiveModelBPlus:
 
         return phi
 
-    def droplet(self, R, domain_size=None, order=2, refinement_tol=1e-4, print_updates=None,
-                phi0=None, phi1=None, guess=None):
+    def droplet(self, R, phi0=None, phi1=None, domain_size=None,
+                optimise_chemical_potential=True, guess=None, **kwargs):
+        """Possible kwargs are arguments to ActiveDroplet.__init__ and ActiveDroplet.refine."""
         bulk_phi = self.bulk_binodals
         if phi1 is None: phi1 = bulk_phi[0]
         if phi0 is None: phi0 = bulk_phi[np.argmax(np.abs(bulk_phi - phi1))]
 
         if guess is None:
-            initial_droplet = lambda p: ActiveDroplet.from_guess(self, R, phi0, p,
-                                                                 domain_size=domain_size,
-                                                                 order=order,
-                                                                 print_updates=print_updates)
+            initial_droplet = ActiveDroplet.from_guess(self, R, phi0, phi1,
+                                                       domain_size=domain_size, **kwargs)
         else:
-            initial_droplet = lambda p: ActiveDroplet(self, R, guess.x, guess.weights, phi1=p, print_updates=print_updates, max_iters=20)
+            initial_droplet = ActiveDroplet(self, R, guess.x, guess.weights, phi1=phi1, **kwargs)
 
-        droplet = lambda p: initial_droplet(p).refine(refinement_tol, print_updates=print_updates)
+        initial_droplet = initial_droplet.refine(**kwargs)
 
-        pseudopressure_balance = lambda droplet: droplet.pseudopressure_drop - (droplet.pseudopressure0 - droplet.pseudopressure1)
-        residual = lambda p: pseudopressure_balance(droplet(p))
-        #phi1 = newton_krylov(residual, phi_guess)
+        if not optimise_chemical_potential: return initial_droplet
 
-        return droplet(phi1)
+        current_drop = initial_droplet
+        def droplet(phi):
+            nonlocal current_drop
+            current_drop = ActiveDroplet(self, R, current_drop.x, current_drop.weights, phi1=phi, **kwargs).refine(**kwargs)
+            import sys; sys.stderr.write('%s\n' % current_drop.summary)
+            return current_drop
+
+        def residual(phi):
+            drop = droplet(phi)
+            #return (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
+            return drop.mu1 - drop.mu0
+
+        phi1 = newton_krylov(residual, phi1)
+        return current_drop
 
 def bulk_binodals(zeta_lamb, *args, **kwargs):
     """
