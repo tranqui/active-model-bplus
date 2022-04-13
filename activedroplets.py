@@ -178,12 +178,15 @@ class ActiveDroplet(HermiteInterpolator):
         super().__init__(*args, **kwargs)
         self.solve(phi1=phi1, print_updates=print_updates, **kwargs)
 
+    def __repr__(self):
+        return '<ActiveDroplet zeta=%g lamb=%g R=%g nnodes=%d>' % (self.field_theory.zeta, self.field_theory.lamb, self.R, len(self.x))
+
     @property
     def summary(self):
         P0, P1 = self.pseudopressure0, self.pseudopressure1
         mu0, mu1 = self.mu0, self.mu1
         S = self.pseudopressure_drop
-        return 'z=%g l=%g: phi=[%.4f->%.4f] mu=[%.4f->%.4f] P=[%.4f->%.4f] S=%.4f dP=%.4f dmu=%.4g dP-S=%.4g nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.phi0, self.phi1, mu0, mu1, P0, P1, S, P0-P1, mu1-mu0, P0-P1-S, len(self.x))
+        return 'zeta=%g lamb=%g R=%g: phi=[%.4f->%.4f] mu=[%.4f->%.4f] P=[%.4f->%.4f] S=%.4f dP=%.4f dmu=%.4g dP-S=%.4g nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.R, self.phi0, self.phi1, mu0, mu1, P0, P1, S, P0-P1, mu1-mu0, P0-P1-S, len(self.x))
 
     @property
     def ode(self):
@@ -362,6 +365,9 @@ class ActiveModelBPlus:
         self.free_energy_density = self.pseudopotential.f
         self.pseudodensity = self.pseudopotential.pseudodensity
 
+    def __repr__(self):
+        return '<ActiveModelBPlus zeta=%g lamb=%g>' % (self.zeta, self.lamb)
+
     @property
     def zeta(self):
         return self.pseudopotential.parameter_values[0]
@@ -424,12 +430,12 @@ class ActiveModelBPlus:
         def droplet(phi):
             nonlocal current_drop
             current_drop = ActiveDroplet(self, R, current_drop.x, current_drop.weights, phi1=phi, **kwargs).refine(**kwargs)
-            import sys; sys.stderr.write('%s\n' % current_drop.summary)
+            # import sys; sys.stderr.write('%s\n' % current_drop.summary)
             return current_drop
 
         def residual(phi):
             drop = droplet(phi)
-            #return (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
+            # return (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
             return drop.mu1 - drop.mu0
 
         phi1 = newton_krylov(residual, phi1)

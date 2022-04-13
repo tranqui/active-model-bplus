@@ -190,7 +190,6 @@ def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2):
 def test_errors(zeta=0, lamb=-1, R=100, order=2, print_updates=None):
     model = droplet_model(zeta, lamb)
     phi1, phi0 = model.bulk_binodals
-    phi1 = -0.8716205
 
     np.set_printoptions(4, linewidth=10000)
 
@@ -202,6 +201,68 @@ def test_errors(zeta=0, lamb=-1, R=100, order=2, print_updates=None):
     print(drop2.summary)
 
     test_plot([drop1, drop2])
+
+def test_varying_radius(R, zeta=0, lamb=0, refinement_tol=1e-2):
+    model = droplet_model(zeta, lamb)
+
+    droplets = []
+    current_droplet = None
+    for r in R:
+        current_droplet = model.droplet(r, refinement_tol=refinement_tol)
+        droplets += [current_droplet]
+        print(current_droplet)
+
+    return droplets
+
+def test_show_size_dependence(R, drops):
+    bulk_phi1, bulk_phi0 = drops[0].field_theory.bulk_binodals
+
+    dP = np.empty(R.size)
+    S = np.empty(R.size)
+    phi0 = np.empty(R.size)
+    phi1 = np.empty(R.size)
+    for i,drop in enumerate(drops):
+        P0, P1 = drop.pseudopressure0, drop.pseudopressure1
+        dP[i] = P0-P1
+        S[i] = drop.pseudopressure_drop
+        phi0[i] = drop.phi0
+        phi1[i] = drop.phi1
+        print(drop)
+
+    plt.figure()
+    plt.plot(R, phi0, '.-', lw=0.5)
+    plt.axhline(y=bulk_phi0, ls='dashed', lw=0.5)
+    plt.xlim([0, 40])
+    plt.ylim([1, 1.3])
+    plt.xlabel('$R$')
+    plt.ylabel('$\phi_0$')
+
+    plt.figure()
+    plt.plot(R, phi1, '.-', lw=0.5)
+    plt.axhline(y=bulk_phi1, ls='dashed', lw=0.5)
+    plt.xlim([0, 40])
+    plt.ylim([-1, -0.7])
+    plt.xlabel('$R$')
+    plt.ylabel('$\phi_1$')
+
+    plt.figure()
+    plt.plot(R, dP, '.-', lw=0.5, label='$\Delta P$')
+    plt.plot(R, S, '.-', lw=0.5, label='$S$')
+    plt.plot(R, -S, '.-', lw=0.5, label='$-S$')
+    plt.legend(loc='best')
+    plt.xlabel('$R$')
+
+    plt.figure()
+    plt.plot(R, dP+S, '.-', lw=0.5, label='$\Delta P + S$')
+    plt.legend(loc='best')
+    plt.xlabel('$R$')
+
+    plt.figure()
+    plt.plot(R, dP-S, '.-', lw=0.5, label='$\Delta P - S$')
+    plt.legend(loc='best')
+    plt.xlabel('$R$')
+
+    plt.show()
 
 if __name__ == '__main__':
 
