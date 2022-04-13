@@ -139,10 +139,10 @@ class ActiveDroplet(HermiteInterpolator):
             #xdist = LogNormalDistribution(np.log(R), 0.25)
 
             # Generate points heavily distributed around the boundary by the above distribution.
+            l = min(10*interfacial_width, R)
             ncentral_points = (9*npoints)//10
             npoints_left = (ncentral_points+1)//2
             npoints_right = ncentral_points - npoints_left
-            l = min(10*interfacial_width, R)
             x0 = np.concatenate((np.linspace(xdist.cdf(R-l), xdist.cdf(R), npoints_left),
                                  np.linspace(xdist.cdf(R), xdist.cdf(R+l), npoints_right+1)[1:]))
             x = xdist.idf(x0)
@@ -150,7 +150,8 @@ class ActiveDroplet(HermiteInterpolator):
             x[-1] = R+l
 
             # Generate some points left and right of the boundary region.
-            npoints_left = (npoints - ncentral_points)//2
+            if l == R: npoints_left = 0
+            else: npoints_left = (npoints - ncentral_points)//2
             npoints_right = npoints - ncentral_points - npoints_left
             xleft = np.linspace(0, x[0], npoints_left+1)[:-1]
             xright = np.linspace(x[-1], domain_size, npoints_right+1)[1:]

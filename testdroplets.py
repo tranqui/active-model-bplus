@@ -139,6 +139,9 @@ def test_plot(drops):
         eps = 1e-3
         xx = R + np.concatenate((-np.geomspace(R-drop.x[0], eps, 1000), [0],
                                  np.geomspace(eps, drop.x[-1]-R, 1000)))
+        # Rounding errors can put these numbers outside the domain, so make sure they are inside.
+        xx[0] = drop.x[0]
+        xx[-1] = drop.x[-1]
         #xplot = lambda x: x/R
         xplot = lambda x: np.abs(x-R)/xi
 
@@ -168,20 +171,21 @@ def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2):
     model = droplet_model(zeta, lamb)
     phi1_guess, phi0 = model.bulk_binodals
 
-    drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=0.1*refinement_tol)
+    drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=1e-2*refinement_tol)
     droplet = lambda p: test_droplet(zeta, lamb, R, phi0, p, refinement_tol=refinement_tol, guess_drop=drop0)
 
-    drop_residual = lambda drop: (drop.mu1 - drop.mu0)**2 + (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
+    drop_residual = lambda drop: drop.mu1 - drop.mu0
+    #drop_residual = lambda drop: (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
     residual = lambda p: drop_residual(droplet(p))
 
-    #phi = newton_krylov(residual, phi1_guess)
-    from scipy.optimize import minimize
-    phi1 = minimize(residual, phi1_guess).x
+    phi1 = newton_krylov(residual, phi1_guess)
+    #from scipy.optimize import minimize
+    #phi1 = minimize(residual, phi1_guess).x
     print('final phi1: %.8g' % phi1)
 
-    drop = droplet(phi1)
-    test_plot([drop])
-
+    return droplet(phi1)
+    # test_plot([drop])
+    
 def test_errors(zeta=0, lamb=-1, R=100, order=2, print_updates=None):
     model = droplet_model(zeta, lamb)
     phi1, phi0 = model.bulk_binodals
