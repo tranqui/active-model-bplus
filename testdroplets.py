@@ -167,11 +167,11 @@ def test_plot(drops):
 
     plt.show()
 
-def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2):
+def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2, **kwargs):
     model = droplet_model(zeta, lamb)
     phi1_guess, phi0 = model.bulk_binodals
 
-    drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=1e-2*refinement_tol)
+    drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=1e-2*refinement_tol, **kwargs)
     droplet = lambda p: test_droplet(zeta, lamb, R, phi0, p, refinement_tol=refinement_tol, guess_drop=drop0)
 
     current_drop = drop0

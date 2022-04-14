@@ -127,7 +127,7 @@ class SechSquaredDistribution(ProbabilityDistribution):
 
 class ActiveDroplet(HermiteInterpolator):
     @classmethod
-    def from_guess(cls, field_theory, R, phi0, phi1, domain_size=None, order=2,
+    def from_guess(cls, field_theory, R, phi0, phi1, domain_size=None, order=4,
                    xsample=None, npoints=51, interfacial_width=None, **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__."""
         if domain_size is None: domain_size = 5*R
