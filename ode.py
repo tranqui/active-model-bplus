@@ -296,39 +296,39 @@ class WeakFormProblem1d:
             elif boundary == 1: R[1:,deriv] += r
             else: raise RuntimeError('unknown variable indices during residual calculation!')
 
-        # # Apply natural boundary condition needed to make weak form valid (these conditions
-        # # arise from surface terms left over from e.g. integration by parts).
-        # if self.natural_boundary_condition:
-        #     left, right = self.compiled_natural_boundary_condition_expressions(order)
-        #     for c, (l, r) in enumerate(zip(left, right)):
-        #         with np.errstate(divide='raise'):
-        #             if self.boundary_left:
-        #                 R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
-        #             if self.boundary_right:
-        #                 R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
+        # Apply natural boundary condition needed to make weak form valid (these conditions
+        # arise from surface terms left over from e.g. integration by parts).
+        if self.natural_boundary_condition:
+            left, right = self.compiled_natural_boundary_condition_expressions(order)
+            for c, (l, r) in enumerate(zip(left, right)):
+                with np.errstate(divide='raise'):
+                    if self.boundary_left:
+                        R[c//order, c%order] += l(xleft[0], xright[0], *w[0], *self.parameter_values)
+                    if self.boundary_right:
+                        R[-2 + c//order, c%order] += r(xleft[-1], xright[-1], *w[-1], *self.parameter_values)
 
-        # # Evaluate residual contributions from specific boundary conditions.
-        # element_edges = nodes[:-1]
-        # bcs = {}
-        # for point, func in self.compiled_boundary_condition_expressions(order):
-        #     # If point is an analytic expression we may need to evaluate it.
-        #     point = sp.lambdify(self.parameters, point)(*self.parameter_values)
+        # Evaluate residual contributions from specific boundary conditions.
+        element_edges = nodes[:-1]
+        bcs = {}
+        for point, func in self.compiled_boundary_condition_expressions(order):
+            # If point is an analytic expression we may need to evaluate it.
+            point = sp.lambdify(self.parameters, point)(*self.parameter_values)
 
-        #     # Evaluate boundary condition on the local element
-        #     element = np.digitize(point, element_edges)-1
-        #     xleft, xright = nodes[element:element+2]
-        #     value = func(xleft, xright, *w[element], *self.parameter_values)
+            # Evaluate boundary condition on the local element
+            element = np.digitize(point, element_edges)-1
+            xleft, xright = nodes[element:element+2]
+            value = func(xleft, xright, *w[element], *self.parameter_values)
 
-        #     # We will place the boundary condition on a residual entry for the closest node,
-        #     # because it should depend on local weights there.
-        #     closest_node = np.abs(nodes - point).argmin()
-        #     try: bcs[closest_node] += [value]
-        #     except: bcs[closest_node] = [value]
+            # We will place the boundary condition on a residual entry for the closest node,
+            # because it should depend on local weights there.
+            closest_node = np.abs(nodes - point).argmin()
+            try: bcs[closest_node] += [value]
+            except: bcs[closest_node] = [value]
 
-        # # Make sure boundary conditions fall on distinct residual entries for the selected nodes.
-        # for node, conditions in bcs.items():
-        #     for i, value in enumerate(conditions):
-        #         R[node,i] = value
+        # Make sure boundary conditions fall on distinct residual entries for the selected nodes.
+        for node, conditions in bcs.items():
+            for i, value in enumerate(conditions):
+                R[node,i] = value
 
         return R.reshape(-1)
 
@@ -364,7 +364,10 @@ class WeakFormProblem1d:
         nelements, order = weights.shape
         nelements -= 1
 
-        J = np.zeros((2*(order+1)+1, nelements+1, order))
+        # Equations depend on 3*order variables (1 x order for each of left, central and right
+        # points) in each element.
+        J = np.zeros((3*order, nelements+1, order))
+
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, self.argument)
         variables = polynomial.weight_variables
         functions = self.compiled_elemental_jacobians(order, *args, **kwargs)
@@ -372,109 +375,76 @@ class WeakFormProblem1d:
         xleft, xright = nodes[:-1], nodes[1:]
         w = np.hstack((weights[:-1], weights[1:]))
 
-        Jtmp = np.zeros((4*order-1, nelements+1, order))
-        #Jright = np.zeros((order, nelements+1, order))
         for var, row in zip(variables, functions):
             boundary, deriv = var.indices
 
             for i, func in enumerate(row):
-                kk = i+order-1
-                i = len(J)-2-i
                 j = func(xleft, xright, *w.T, *self.parameter_values)
                 if boundary == 0:
-                    J[i-order,:-1,deriv] += j
-                    Jtmp[kk+order,:-1,deriv] += j
+                    J[i+order,:-1,deriv] += j
                 elif boundary == 1:
                     J[i,1:,deriv] += j
-                    Jtmp[kk,1:,deriv] += j
                 else: raise RuntimeError('unknown variable indices during residual calculation!')
 
         J = J.reshape(len(J), -1)
-        Jtmp = Jtmp.reshape(len(Jtmp), -1)
-        print()
-        print(Jtmp.T)
-        # Jleft = Jleft.reshape(len(Jleft), -1)
-        # print()
-        # print(Jleft.T)
-        #Jright = Jright.reshape(len(Jleft), -1)
-        #print()
-        #print(Jright.T)
 
-        # # Apply natural boundary condition needed to make weak form valid (these conditions
-        # # arise from surface terms left over from e.g. integration by parts).
-        # if self.natural_boundary_condition:
-        #     left, right = self.compiled_natural_boundary_condition_jacobians(order)
-        #     for c, (l, r) in enumerate(zip(left, right)):
-        #         starting_row = len(J)-1-len(variables)
-        #         eqn = -2*order+c
-        #         if self.boundary_right:
-        #             r = np.flipud([f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r])
-        #             rows = np.arange(starting_row, starting_row+len(r)) % len(J)
-        #             J[rows, eqn] += r
+        # Apply natural boundary condition needed to make weak form valid (these conditions
+        # arise from surface terms left over from e.g. integration by parts).
+        if self.natural_boundary_condition:
+            left, right = self.compiled_natural_boundary_condition_jacobians(order)
+            for c, (l, r) in enumerate(zip(left, right)):
+                starting_row = len(J)//2 - c
 
-        #         eqn = c
-        #         starting_row -= order
-        #         if self.boundary_left:
-        #             l = np.flipud([f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l])
-        #             rows = np.arange(starting_row, starting_row+len(l)) % len(J)
-        #             J[rows, eqn] += l
+                eqn = -2*order+c
+                if self.boundary_right:
+                    r = [f(xleft[-1], xright[-1], *w[-1], *self.parameter_values) for f in r]
+                    J[:len(r), eqn] += r
 
-        # # Apply boundary conditions.
-        # element_edges = nodes[:-1]
-        # bcs = {}
-        # for point, row in self.compiled_boundary_condition_jacobians(order):
-        #     # If point is an analytic expression we may need to evaluate it.
-        #     point = sp.lambdify(self.parameters, point)(*self.parameter_values)
+                eqn = c
+                if self.boundary_left:
+                    l = [f(xleft[0], xright[0], *w[0], *self.parameter_values) for f in l]
+                    J[order:order+len(l), eqn] += l
 
-        #     element = np.digitize(point, element_edges)-1
-        #     closest_node = np.abs(nodes - point).argmin()
-        #     xleft, xright = nodes[element:element+2]
-        #     values = np.flipud([func(xleft, xright, *w[element], *self.parameter_values) for func in row])
+        # Apply boundary conditions.
+        element_edges = nodes[:-1]
+        bcs = {}
+        for point, row in self.compiled_boundary_condition_jacobians(order):
+            # If point is an analytic expression we may need to evaluate it.
+            point = sp.lambdify(self.parameters, point)(*self.parameter_values)
 
-        #     starting_row = len(J)-1-len(variables)
-        #     boundary_on_left = closest_node == element
-        #     if boundary_on_left: starting_row -= order
+            element = np.digitize(point, element_edges)-1
+            closest_node = np.abs(nodes - point).argmin()
+            xleft, xright = nodes[element:element+2]
+            values = [func(xleft, xright, *w[element], *self.parameter_values) for func in row]
 
-        #     entry = np.zeros(len(J))
-        #     rows = np.arange(starting_row, starting_row+len(values)) % len(J)
-        #     entry[rows] = values
-        #     try: bcs[closest_node] += [entry]
-        #     except: bcs[closest_node] = [entry]
+            boundary_on_left = closest_node == element
+            if boundary_on_left: entry = np.concatenate((np.zeros(order), values))
+            else: entry = np.concatenate((values, np.zeros(order)))
 
-        # # Ensure boundary conditions are placed on distinct rows
-        # for node, conditions in bcs.items():
-        #     for c, entry in enumerate(conditions):
-        #         index = node*order + c
-        #         J[:,index] = entry
+            try: bcs[closest_node] += [entry]
+            except: bcs[closest_node] = [entry]
 
-        # print()
-        # print(J.T)
+        # Ensure boundary conditions are placed on distinct rows
+        for node, conditions in bcs.items():
+            for c, entry in enumerate(conditions):
+                eqn = node*order + c
+                J[:, eqn] = entry
 
-        # Each column currently contains the Jacobian entries for each residual, but
+        # Each row now contains the nonzero Jacobian entries for each residual, but
         # we have to shift these to correspond to the matrix format needed by
         # scipy.linalg.solve_banded.
 
-        # Shift columns for each type of local weight so that they align with their own equations.
+        # Add extra rows and shift columns so that each equation's own node runs along the diagonal.
+        ncols = J.shape[1]
+        J = np.vstack((np.zeros((order-1, ncols)), J))
         for c in range(1,order):
-            J[:,c::order] = np.roll(J[:,c::order], c, axis=0)
-        for c in range(1,order):
-            Jtmp[:,c::order] = np.roll(Jtmp[:,c::order], -c, axis=0)
-
-        print()
-        print(Jtmp.T)
+            J[:,c::order] = np.roll(J[:,c::order], -c, axis=0)
 
         # Shift the elements for each equation so elements of a single equation are stored
         # diagonally (cf. scipy.linalg.solve_banded which documents the matrix storage format).
+        J = np.flipud(J)
         for c in range(len(J)):
             J[c] = np.roll(J[c], len(J)//2-c)
-        for c in range(len(J)):
-            print(c, len(Jtmp)//2-c)
-            Jtmp[c] = np.roll(Jtmp[c], c-len(Jtmp)//2)
-
-        print()
-        print(Jtmp.T)
-        print()
-        print(self.full_jacobian(Jtmp))
 
         return J
 
@@ -535,20 +505,9 @@ class WeakFormProblem1d:
                 raise RuntimeError('did not converge during ODE solve step after %d iters!' % iters)
 
             J = self.jacobian(nodes, weights)
-            full = self.full_jacobian(J)
-            num = self.numerical_jacobian(nodes, weights)
-            # print()
-            # print('us:')
-            # print(full)
-            print()
-            print('true:')
-            print(num)
-            print()
-            # print('delta:')
-            # print(full-num)
-            import sys; sys.exit(0)
 
-            delta = solve_banded((order+1, order+1), J, -R).reshape(weights.shape)
+            u = (J.shape[0]-1) // 2
+            delta = solve_banded((u, u), J, -R).reshape(weights.shape)
             # from scipy.optimize import line_search
             # line_search(obj_func, obj_grad, start_point, search_gradient)
             if print_updates: print_updates.write('%r delta=%r\n' % (iters, delta))
@@ -647,71 +606,23 @@ class GinzburgLandauFlatInterface(WeakFormProblem1d):
                (0, u(x), 0),
                (cls.domain_size, u(x), cls.binodal)}
 
-class DummyProblem(WeakFormProblem1d):
-    parameters = []
-
-    @classmethod
-    @property
-    def strong_form(cls):
-        x, u, b = cls.x, cls.u, cls.b
-        return u(x).diff(x,3) - 1
-
-    @classmethod
-    @property
-    def weak_form(cls):
-        x, u, b = cls.x, cls.u, cls.b
-        return -u(x).diff(x,2)*b(x).diff(x)
-
-    @classmethod
-    @property
-    def natural_boundary_condition(cls):
-        x, u, b = cls.x, cls.u, cls.b
-        return u(x).diff(x,3) * b(x).diff(x)
-        #return u(x).diff(x,4) * b(x).diff(x) - u(x).diff(x,3) * b(x).diff(x,2)
-
-    @classmethod
-    @property
-    def boundary_conditions(cls):
-        return {(0, cls.u(cls.x), 1),
-                (1, cls.u(cls.x), 0),
-                (1, cls.u(cls.x).diff(cls.x), 0)}
-        # return {(0, cls.u(cls.x), 1),
-        #         (0, cls.u(cls.x).diff(cls.x), 1),
-        #         (1, cls.u(cls.x), 0),
-        #         (1, cls.u(cls.x).diff(cls.x), 0)}
-
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import sys
 
     np.set_printoptions(4, suppress=True, linewidth=10000)
 
-    p = DummyProblem()
-    print('   solving ODE:', p.strong_form)
-    print('exact solution:', p.analytic_solution)
-
-    x = np.linspace(0, 1, 3)
-    order = 2
-    w = np.zeros((len(x), order))
-    w += np.random.random(w.shape)
-    w = p.solve(x, w)#, print_updates=sys.stderr)
-    sys.exit(0)
-
     p = GinzburgLandauFlatInterface(-0.25, 0.25, 1)
     print('   solving ODE:', p.strong_form)
     print('exact solution:', p.analytic_solution)
 
     N = 100
-    N = 6
     x = p.numerical_domain_size * np.linspace(-1, 1, N)**3
     order = 2
     w = np.zeros((len(x), order))
     exact = p.analytic_solution.subs({p: v for p, v in zip(p.parameters, p.parameter_values)})
     for c in range(order):
         w[:,c] = sp.lambdify(p.argument, exact.diff(p.argument, c))(x)
-    w += 1e-4*np.random.random(w.shape)
-    print(w)
-    #w[:,0] = np.linspace(-1, 1, len(w))
 
     w = p.solve(x, w, print_updates=sys.stderr)
     f = HermiteInterpolator(x, w)
