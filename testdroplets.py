@@ -4,17 +4,16 @@ import sys
 import numpy as np, matplotlib.pyplot as plt
 import sympy as sp
 
-from activedroplets import *
+from activedroplets import symbols, ActiveModelBSphericalInterface, ActiveModelBPlus
 
-def droplet_model(zeta, lamb, K=1, t=-0.25, u=0.25):
+def field_theory(zeta, lamb, K=1, t=-0.25, u=0.25, d=3):
     constant_parameters = (K, t, u)
-    return ActiveModelBPlus(zeta, lamb, *constant_parameters)
+    return ActiveModelBPlus(zeta, lamb, *constant_parameters, d=d)
 
-def test_droplet(zeta, lamb, R, phi0, phi1, K=1, t=-0.25, u=0.25, guess_drop=None,
-                 order=2, refinement_tol=1e-4, print_updates=None):
-    model = droplet_model(zeta, lamb, K, t, u)
+def droplet(zeta, lamb, R, K=1, t=-0.25, u=0.25, d=3, **kwargs):
+    model = field_theory(zeta, lamb, K, t, u, d)
     try:
-        drop = model.droplet(R, order=order, refinement_tol=refinement_tol, phi0=phi0, phi1=phi1, guess=guess_drop, optimise_chemical_potential=False, print_updates=print_updates)
+        drop = model.droplet(R, **kwargs)
         print(drop.summary)
         return drop
     except Exception as e:
@@ -22,80 +21,14 @@ def test_droplet(zeta, lamb, R, phi0, phi1, K=1, t=-0.25, u=0.25, guess_drop=Non
         traceback.print_exception(type(e), e, e.__traceback__)
         raise e from None
 
-def grad_mu(drop, phi=sp.Function('phi'), r=symbols.r):
+def grad_mu(drop, phi=sp.Function('\phi'), r=symbols.r):
     ode = drop.ode
     f = ActiveModelBSphericalInterface.strong_form.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
     f = f.subs(ActiveModelBSphericalInterface.unknown_function, phi)
     f = f.subs(ActiveModelBSphericalInterface.argument, r)
     return f
 
-def local_mu(drop, phi=sp.Function('phi'), r=symbols.r):
-    ode = drop.ode
-    f = ActiveModelBSphericalInterface.local_term.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
-    f = f.subs(ActiveModelBSphericalInterface.unknown_function, phi)
-    f = f.subs(ActiveModelBSphericalInterface.argument, r)
-    return f
-
-def debug_plot(drop):
-    R = drop.R
-
-    plt.figure()
-    plt.axvline(x=1, ls='dashed', lw=0.5)
-    plt.axhline(y=0, ls='dashed', lw=0.5)
-    xx = np.linspace(np.min(drop.x), np.max(drop.x), 1001)
-    plt.plot(xx/R, drop(xx), '-', lw=0.5)
-
-    phi = sp.Function('phi')
-    r = symbols.r
-
-    plt.figure()
-    f = -phi(r).diff(r)
-    plt.plot(xx/R, drop.evaluate(f, phi, r)(xx), lw=0.5)
-    # f = phi(r).diff(r)**2
-    # plt.plot(xx/R, drop.evaluate(f, phi, r)(xx), lw=0.5)
-    f = phi(r).diff(r,2)
-    plt.plot(xx/R, drop.evaluate(f, phi, r)(xx), lw=0.5)
-    f = phi(r).diff(r,3)
-    plt.plot(xx/R, drop.evaluate(f, phi, r)(xx), lw=0.5)
-
-    plt.figure()
-    plt.plot(xx/R, drop.evaluate(grad_mu(drop, phi, r), phi, r)(xx), lw=0.5)
-
-def test_vary_phi(zeta=0, lamb=0, R=100, refinement_tol=1e-2): #refinement_tol=np.inf):
-    phi0 = 1
-
-    N = 11
-    phi1 = -np.linspace(0.9, 1.1, N)
-    mu0 = np.empty(N)
-    mu1 = np.empty(N)
-    dp = np.empty(N)
-    S = np.empty(N)
-
-    for i,p in enumerate(phi1):
-        drop = test_droplet(zeta, lamb, R, phi0, p, refinement_tol=refinement_tol)
-        print(drop.summary)
-        dp[i] = drop.pseudopressure0 - drop.pseudopressure1
-        mu0[i] = drop.mu0
-        mu1[i] = drop.mu1
-        S[i] = drop.pseudopressure_drop
-
-    plt.figure()
-    plt.plot(phi1, mu1 - mu0, lw=0.5)
-    plt.axhline(y=0, ls='dashed')
-    plt.ylabel('$\Delta \mu$')
-    plt.xlabel('$\phi_1$')
-    plt.legend(loc='best')
-
-    plt.figure()
-    plt.plot(phi1, dp-S, lw=0.5)
-    plt.axhline(y=0, ls='dashed')
-    plt.ylabel('$\Delta p - S$')
-    plt.xlabel('$\phi_1$')
-    plt.legend(loc='best')
-
-    plt.show()
-
-def test_plot(drops):
+def plot_droplet_profile(drops):
     plt.figure()
     axphi = plt.gca()
     plt.title('$\phi$')
@@ -127,13 +60,11 @@ def test_plot(drops):
     axphi.set_xlabel(r'$(r - R) / \xi$')
     axphi.set_xlim([-10, 10])
 
-    phi, r = sp.Function('phi'), sp.Symbol('r')
+    phi, r = sp.Function('\phi'), sp.Symbol('r')
 
     print('plotting...')
     for drop in drops:
         R = drop.R
-
-        strong = grad_mu(drop)
 
         xi = drop.field_theory.passive_bulk_interfacial_width
         eps = 1e-3
@@ -167,105 +98,123 @@ def test_plot(drops):
 
     plt.show()
 
-def optimise(zeta=0, lamb=0, R=100, refinement_tol=1e-2, **kwargs):
-    model = droplet_model(zeta, lamb)
-    phi1_guess, phi0 = model.bulk_binodals
-
-    drop0 = test_droplet(zeta, lamb, R, phi0, phi1_guess, refinement_tol=1e-2*refinement_tol, **kwargs)
-    droplet = lambda p: test_droplet(zeta, lamb, R, phi0, p, refinement_tol=refinement_tol, guess_drop=drop0)
-
-    current_drop = drop0
-    def residual(phi):
-        nonlocal current_drop
-        current_drop = droplet(phi)
-        #return (current_drop.mu1 - current_drop.mu0)**2 #+ (current_drop.pseudopressure0 - current_drop.pseudopressure1 - current_drop.pseudopressure_drop)**2
-        return current_drop.mu1 - current_drop.mu0
-
-    phi1 = newton_krylov(residual, phi1_guess)
-    #from scipy.optimize import minimize
-    #phi1 = minimize(residual, phi1_guess).x
-    print('final phi1: %.8g' % phi1)
-    return current_drop
-    
-def test_errors(zeta=0, lamb=-1, R=100, order=2, print_updates=None):
-    model = droplet_model(zeta, lamb)
-    phi1, phi0 = model.bulk_binodals
-
-    np.set_printoptions(4, linewidth=10000)
-
-    try: drop1 = test_droplet(zeta, lamb, R, phi0, phi1, refinement_tol=np.inf, order=order, print_updates=print_updates)
-    except: return
-    print(drop1.summary)
-
-    drop2 = drop1.refine(refinement_tol=1e-4)
-    print(drop2.summary)
-
-    test_plot([drop1, drop2])
-
-def test_varying_radius(R, zeta=0, lamb=0, refinement_tol=1e-2):
-    model = droplet_model(zeta, lamb)
-
+def test_varying_radius(R, zeta=0, lamb=0, **kwargs):
     droplets = []
-    current_droplet = None
-    for r in R:
-        current_droplet = model.droplet(r, refinement_tol=refinement_tol)
-        droplets += [current_droplet]
-        print(current_droplet)
+    last_droplet = None
+
+    R = np.sort(R)
+    for r in np.flipud(R):
+        last_droplet = droplet(zeta, lamb, r, guess=last_droplet, **kwargs)
+        droplets += [last_droplet]
+    droplets.reverse()
 
     return droplets
 
-def test_show_size_dependence(R, drops):
-    bulk_phi1, bulk_phi0 = drops[0].field_theory.bulk_binodals
+def show_size_dependence(*args):
+    drops = []
+    for a in args: drops += a
 
-    dP = np.empty(R.size)
-    S = np.empty(R.size)
-    phi0 = np.empty(R.size)
-    phi1 = np.empty(R.size)
-    for i,drop in enumerate(drops):
-        P0, P1 = drop.pseudopressure0, drop.pseudopressure1
-        dP[i] = P0-P1
-        S[i] = drop.pseudopressure_drop
-        phi0[i] = drop.phi0
-        phi1[i] = drop.phi1
-        print(drop)
+    unique_states = {}
+    for drop in drops:
+        state = tuple(drop.field_theory.parameters.values())
+        if state not in unique_states: unique_states[state] = []
+        unique_states[state] += [drop]
 
-    plt.figure()
-    plt.plot(R, phi0, '.-', lw=0.5)
-    plt.axhline(y=bulk_phi0, ls='dashed', lw=0.5)
-    plt.xlim([0, 40])
-    plt.ylim([1, 1.3])
-    plt.xlabel('$R$')
-    plt.ylabel('$\phi_0$')
+    # Some bookkeeping so we can only show changing parameters in legend labels.
+    labels = tuple(drop.field_theory.parameters.keys())
+    states = np.array(list(unique_states.keys()))
+    changing_columns = np.where(~np.all(states == states[0,:], axis = 0))[0]
 
     plt.figure()
-    plt.plot(R, phi1, '.-', lw=0.5)
-    plt.axhline(y=bulk_phi1, ls='dashed', lw=0.5)
-    plt.xlim([0, 40])
-    plt.ylim([-1, -0.7])
-    plt.xlabel('$R$')
-    plt.ylabel('$\phi_1$')
-
+    ax0 = plt.gca()
     plt.figure()
-    plt.plot(R, dP, '.-', lw=0.5, label='$\Delta P$')
-    plt.plot(R, S, '.-', lw=0.5, label='$S$')
-    plt.plot(R, -S, '.-', lw=0.5, label='$-S$')
-    plt.legend(loc='best')
-    plt.xlabel('$R$')
-
+    ax1 = plt.gca()
     plt.figure()
-    plt.plot(R, dP+S, '.-', lw=0.5, label='$\Delta P + S$')
-    plt.legend(loc='best')
-    plt.xlabel('$R$')
+    axp = plt.gca()
 
-    plt.figure()
-    plt.plot(R, dP-S, '.-', lw=0.5, label='$\Delta P - S$')
-    plt.legend(loc='best')
-    plt.xlabel('$R$')
+    axes = [ax0, ax1, axp]
+
+    for state, drops in unique_states.items():
+        bulk_phi1, bulk_phi0 = drops[0].field_theory.bulk_binodals
+
+        R = np.empty(len(drops))
+        dP = np.empty(len(drops))
+        S = np.empty(len(drops))
+        phi0 = np.empty(len(drops))
+        phi1 = np.empty(len(drops))
+
+        # R = np.arange(len(drops))
+        # dP = np.arange(len(drops))
+        # S = np.arange(len(drops))
+        # phi0 = np.arange(len(drops))
+        # phi1 = np.arange(len(drops))
+
+        for i,drop in enumerate(drops):
+            P0, P1 = drop.pseudopressure0, drop.pseudopressure1
+            R[i] = drop.R
+            dP[i] = P0-P1
+            S[i] = drop.pseudopressure_drop
+            phi0[i] = drop.phi0
+            phi1[i] = drop.phi1
+            print(drop)
+
+        order = np.argsort(R)
+        dP = dP[order]
+        S = S[order]
+        phi0 = phi0[order]
+        phi1 = phi1[order]
+        R = R[order]
+
+        label = ''
+        for c in changing_columns:
+            label += str(labels[c]) + '= %.2g' % state[c]
+            if c < len(changing_columns)-1: label += '; '
+        label = '$%s$' % label
+
+        pl, = ax0.plot(R, phi0, '.-', lw=0.5, label=label)
+        ax0.axhline(y=bulk_phi0, ls='dashed', lw=0.5, c=pl.get_color())
+
+        pl, = ax1.plot(R, phi1, '.-', lw=0.5, label=label)
+        ax1.axhline(y=bulk_phi1, ls='dashed', lw=0.5, c=pl.get_color())
+
+        pl, = axp.plot(R, dP, '-', lw=0.5, label=label)
+        axp.plot(R, S, '--', lw=0.5, c=pl.get_color())
+        #zeta, lamb = drop.field_theory.zeta, drop.field_theory.lamb
+        #axp.plot(R, (zeta - lamb) * S, 'o:', lw=0.5, c=pl.get_color())
+        #axp.plot(R, -S, 'o:', lw=0.5, c=pl.get_color())
+
+    ax0.set_xlim([0, 40])
+    ax0.set_ylim([1, 1.3])
+    ax0.set_ylabel('$\phi_0$')
+
+    ax1.set_xlim([0, 40])
+    ax1.set_ylim([-1, -0.7])
+    ax1.set_ylabel('$\phi_1$')
+
+    for ax in axes:
+        ax.legend(loc='best')
+        ax.set_xlabel('$R$')
+
+    # plt.figure()
+    # plt.plot(R, dP+S, '.-', lw=0.5, label='$\Delta P + S$')
+    # plt.legend(loc='best')
+    # plt.xlabel('$R$')
+
+    # plt.figure()
+    # plt.plot(R, dP-S, '.-', lw=0.5, label='$\Delta P - S$')
+    # plt.legend(loc='best')
+    # plt.xlabel('$R$')
 
     plt.show()
 
-if __name__ == '__main__':
+def test_against_literature(R=np.arange(10, 41, 1)):
+    drops1 = test_varying_radius(R, -1, 0.5, d=2)
+    drops2 = test_varying_radius(R, -4, -1, d=2)
+    drops3 = test_varying_radius(R, -1, 0.5, d=3)
+    drops4 = test_varying_radius(R, -4, -1, d=3)
+    test_show_size_dependence(drops1, drops2, drops3, drops4)
 
+if __name__ == '__main__':
     #np.set_printoptions(4, suppress=True, linewidth=10000)
     np.set_printoptions(4, linewidth=10000)
 

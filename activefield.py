@@ -18,15 +18,15 @@ class symbols:
     r = sp.Symbol('r')
     droplet_radius = sp.Symbol('R')
     domain_size = sp.Symbol('L')
-    interfacial_width = sp.Symbol('xi')
+    interfacial_width = sp.Symbol(r'\xi')
     # Aliases:
     R = droplet_radius
     L = domain_size
     xi = interfacial_width
 
     # State variables:
-    density = sp.Symbol('phi')
-    pseudodensity = sp.Symbol('psi')
+    density = sp.Symbol('\phi')
+    pseudodensity = sp.Symbol('\psi')
     pressure = sp.Symbol('p')
     pseudopressure = sp.Symbol('P')
     free_energy_density = sp.Symbol('f')
@@ -42,8 +42,8 @@ class symbols:
     K = square_grad_coefficient
 
     # Activity parameters in Active Model-B+:
-    zeta = sp.Symbol('zeta')
-    lamb = sp.Symbol('lambda')
+    zeta = sp.Symbol('\zeta')
+    lamb = sp.Symbol('\lambda')
 
 class Expression:
     arguments = []
@@ -257,9 +257,7 @@ class Phi4Pseudopotential(Pseudopotential):
 
 class ActiveModelBSphericalInterface(WeakFormProblem1d):
     argument = sp.Symbol('r')
-    density0, density1 = sp.symbols('phi0 phi1')
-    parameters = [density1,
-                  symbols.droplet_radius, symbols.domain_size,
+    parameters = [symbols.droplet_radius, symbols.domain_size,
                   symbols.zeta, symbols.lamb,
                   symbols.K, symbols.t, symbols.u, symbols.d]
 
@@ -341,7 +339,5 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
 
         return {(0, phi(r).diff(r), 0),
                 (symbols.droplet_radius, phi(r), 0),
-                #(symbols.droplet_radius, phi(r).diff(r,2), 0),
-                (symbols.domain_size, phi(r), cls.density1),
+                (symbols.droplet_radius, cls.strong_form, 0),
                 (symbols.domain_size, phi(r).diff(r), 0)}
-

@@ -6,7 +6,7 @@ from scipy.special import erf, erfinv
 import sympy as sp
 
 from interpolate import HermiteInterpolator
-from activefield import *
+from activefield import symbols, Phi4Pseudopotential, ActiveModelBSphericalInterface
 
 class ProbabilityDistribution:
     parameters = []
@@ -176,7 +176,7 @@ class ActiveDroplet(HermiteInterpolator):
         self.field_theory = field_theory
         self.R = R
         super().__init__(*args, **kwargs)
-        self.solve(phi1=phi1, print_updates=print_updates, **kwargs)
+        self.solve(print_updates=print_updates, **kwargs)
 
     def __repr__(self):
         return '<ActiveDroplet zeta=%g lamb=%g R=%g nnodes=%d>' % (self.field_theory.zeta, self.field_theory.lamb, self.R, len(self.x))
@@ -191,11 +191,9 @@ class ActiveDroplet(HermiteInterpolator):
     @property
     def ode(self):
         constant_params = tuple(self.field_theory.pseudopotential.parameter_values + (self.field_theory.d,))
-        return ActiveModelBSphericalInterface(self.phi1, self.R,
-                                              self.domain_size, *constant_params)
+        return ActiveModelBSphericalInterface(self.R, self.domain_size, *constant_params)
 
-    def solve(self, *args, phi1=None, **kwargs):
-        if phi1 is not None: self.weights[-1,0] = phi1
+    def solve(self, *args, **kwargs):
         with np.errstate(all='raise'):
             self.weights = self.ode.solve(self.x, self.weights, *args, **kwargs)
         assert np.sign(self(self.R, derivative=1)) == np.sign(self.phi1 - self.phi0)
@@ -204,32 +202,29 @@ class ActiveDroplet(HermiteInterpolator):
     def domain_size(self):
         return self.x[-1]
 
-    def refine(self, refinement_tol=1e-2, max_refinement_iters=None, nrefinement_iters=0,
+    def refine(self, refinement_tol=1e-6, max_refinement_iters=None, nrefinement_iters=0,
                max_points=int(1e6), **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__."""
         if max_refinement_iters and nrefinement_iters >= max_refinement_iters:
             raise RuntimeError('result not converging after %d mesh refinement iterations!' % niters)
 
+        if refinement_tol is np.inf: return self
+
         f = sp.Function('f')
         x = symbols.x
-
-        # error_estimator = f(x).diff(x)**2
-        # I = self.numerical_integral(error_estimator, f, x)
-        # errors = np.diff(I.weights[:,0]) * np.diff(I.nodes)
 
         ode = self.ode
         h = ode.strong_form
         h = h.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
         h = h.subs({ode.argument: x, ode.unknown_function: f})
-        error_estimator = h
+        error_estimator = h**2
 
         #I = self.analytic_integral(error_estimator, f, x)
         I = self.numerical_integral(error_estimator, f, x)
-        errors = np.abs(np.diff(I.weights[:,0])) * np.diff(I.nodes)
+        errors = np.abs(np.diff(I.weights[:,0]))
 
         if np.any(errors > refinement_tol):
             elements_to_split = errors > refinement_tol
-            # print('splitting:', np.sum(elements_to_split))
             element_midpoints = 0.5*(self.x[1:] + self.x[:-1])
             new_x = element_midpoints[elements_to_split]
             new_x = np.sort( np.concatenate((I.x, new_x)) )
@@ -278,7 +273,7 @@ class ActiveDroplet(HermiteInterpolator):
     @classmethod
     @property
     def nonlocal_integrand_expression(cls):
-        phi = sp.Function('phi')
+        phi = sp.Function('\phi')
         r = symbols.r
         zeta, lamb, K, d = symbols.zeta, symbols.lamb, symbols.K, symbols.d
 
@@ -322,10 +317,10 @@ class ActiveDroplet(HermiteInterpolator):
     @classmethod
     @property
     def surface_tension_integrand_expression(cls):
-        phi = sp.Function('phi')
+        phi = sp.Function('\phi')
         r = symbols.r
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
-        phi0 = sp.Symbol('phi0')
+        phi0 = sp.Symbol('\phi0')
 
         s0_integrand = zeta * sp.exp( phi0 * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
         s1_integrand = -2*lamb * sp.exp( phi(r) * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
@@ -351,13 +346,13 @@ class ActiveDroplet(HermiteInterpolator):
     @property
     def pseudopressure_drop(self):
         integrand = self.surface_tension_integrand(self.phi0)
-        phi, r = sp.Function('phi'), symbols.r
+        phi, r = sp.Function('\phi'), symbols.r
         return self.integrate(integrand, phi, r)
 
 class ActiveModelBPlus:
     @classmethod
     def phi4(cls, zeta, lamb, K=1, t=-0.25, u=0.25, *args, **kwargs):
-        return Phi4Pseudopotential(zeta, lamb, K, t, u)
+        return Phi4Pseudopotential(zeta, lamb, K, t, u, *args)
 
     def __init__(self, *args, d=3, **kwargs):
         self.d = d
@@ -389,6 +384,12 @@ class ActiveModelBPlus:
         return self.pseudopotential.parameter_values[4]
 
     @property
+    def parameters(self):
+        params = {p: v for p, v in zip(self.pseudopotential.parameters, self.pseudopotential.parameter_values)}
+        params[symbols.d] = self.d
+        return params
+
+    @property
     def passive_bulk_interfacial_width(self):
         return np.sqrt(-2*self.K/self.t)
 
@@ -409,37 +410,19 @@ class ActiveModelBPlus:
 
         return phi
 
-    def droplet(self, R, phi0=None, phi1=None, domain_size=None,
-                optimise_chemical_potential=True, guess=None, **kwargs):
+    def droplet(self, R, phi0=None, phi1=None, domain_size=None, guess=None, **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__ and ActiveDroplet.refine."""
         bulk_phi = self.bulk_binodals
         if phi1 is None: phi1 = bulk_phi[0]
         if phi0 is None: phi0 = bulk_phi[np.argmax(np.abs(bulk_phi - phi1))]
 
         if guess is None:
-            initial_droplet = ActiveDroplet.from_guess(self, R, phi0, phi1,
-                                                       domain_size=domain_size, **kwargs)
+            drop = ActiveDroplet.from_guess(self, R, phi0, phi1, domain_size=domain_size, **kwargs)
         else:
-            initial_droplet = ActiveDroplet(self, R, guess.x, guess.weights, phi1=phi1, **kwargs)
+            guess_x = guess.x * R / guess.R
+            drop = ActiveDroplet(self, R, guess_x, guess.weights, **kwargs)
 
-        initial_droplet = initial_droplet.refine(**kwargs)
-
-        if not optimise_chemical_potential: return initial_droplet
-
-        current_drop = initial_droplet
-        def droplet(phi):
-            nonlocal current_drop
-            current_drop = ActiveDroplet(self, R, current_drop.x, current_drop.weights, phi1=phi, **kwargs).refine(**kwargs)
-            # import sys; sys.stderr.write('%s\n' % current_drop.summary)
-            return current_drop
-
-        def residual(phi):
-            drop = droplet(phi)
-            # return (drop.mu1 - drop.mu0)**2 #+ (drop.pseudopressure0 - drop.pseudopressure1 - drop.pseudopressure_drop)**2
-            return drop.mu1 - drop.mu0
-
-        phi1 = newton_krylov(residual, phi1)
-        return current_drop
+        return drop.refine(**kwargs)
 
 def bulk_binodals(zeta_lamb, *args, **kwargs):
     """
