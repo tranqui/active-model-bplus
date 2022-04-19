@@ -7,7 +7,7 @@ from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
 from sympy.polys.specialpolys import interpolating_poly
 
-from cache import lru_cache
+from cache import cache
 
 class LagrangeInterpolator:
     """A simple 1d interpolator using Lagrange polynomials. This is convenient for
@@ -140,7 +140,7 @@ class LagrangeInterpolator:
 
 class HermiteInterpolatingPolynomial:
     @classmethod
-    @lru_cache
+    @cache
     def from_cache(cls, *args, **kwargs):
         """It can be expensive to calculate the coefficients in the polynomial (especially as
         the order is increased), so this construction method caches the resulting polynomials to
@@ -263,7 +263,7 @@ class HermiteInterpolator:
 
     @property
     def npoints(self):
-        return self.global_nodes.size
+        return self.nodes.size
 
     @property
     def nelements(self):
@@ -294,7 +294,6 @@ class HermiteInterpolator:
     @property
     def local_node_variables(self):
         return self.interpolating_polynomial.weight_variables
-
 
     def __call__(self, x, derivative=0):
         """
@@ -463,7 +462,7 @@ class HermiteInterpolator:
         return I(self.x[-1])
 
     @classmethod
-    @lru_cache
+    @cache
     def compiled_integrators(cls, order, f, u=sp.Function('f'), arg=None):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order)
         if arg is None: arg = polynomial.x

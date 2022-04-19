@@ -5,7 +5,7 @@ import sympy as sp
 
 from interpolate import HermiteInterpolator
 from ode import WeakFormProblem1d
-from cache import lru_cache, disk
+from cache import cache, cached_property
 
 class symbols:
     """Variables common across expressions."""
@@ -105,7 +105,7 @@ class Expression:
         return cls.diff(derivative)
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_function(cls, derivative=0):
         """Compile the function so that it can be numerically evaluated with native python
@@ -200,7 +200,7 @@ class Pseudopotential(Expression):
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def expression(cls):
         phi = symbols.density
         f = cls.free_energy_density.expression
@@ -300,7 +300,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def strong_form(cls):
         """dmu/dr."""
         r = cls.argument
@@ -315,7 +315,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def weak_form(cls):
         r = cls.argument
         expr = -cls.test_function.diff(r) * cls.local_term + cls.nonlocal_term * cls.test_function
@@ -324,7 +324,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def natural_boundary_condition(cls):
         expr = cls.local_term * cls.test_function
         return expr.simplify()

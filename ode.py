@@ -8,7 +8,7 @@ import sympy as sp
 from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
 import differentiate
 
-from cache import lru_cache, disk
+from cache import cache, cached_property
 
 import sys
 # print_compilation_updates = None
@@ -78,14 +78,14 @@ class WeakFormProblem1d:
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def analytic_solution(cls):
         bcs = {expr.subs(cls.argument, point): value for point, expr, value in cls.boundary_conditions}
         return sp.dsolve(cls.strong_form, cls.unknown_function(cls.argument), ics=bcs).rhs
 
     @classmethod
     @property
-    @lru_cache
+    @cache
     def compiled_exact_solution(cls):
         return sp.lambdify([cls.argument] + cls.parameters, cls.analytic_solution)
 
@@ -100,7 +100,7 @@ class WeakFormProblem1d:
         return [polynomial.x0, polynomial.x1] + polynomial.weight_variables + cls.parameters
 
     @classmethod
-    @lru_cache
+    @cache
     def natural_boundary_condition_expressions(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
 
@@ -118,7 +118,7 @@ class WeakFormProblem1d:
         return left, right
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_natural_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
@@ -136,7 +136,7 @@ class WeakFormProblem1d:
         return compiled_expressions
 
     @classmethod
-    @lru_cache
+    @cache
     def natural_boundary_condition_jacobians(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
         J = []
@@ -146,7 +146,7 @@ class WeakFormProblem1d:
         return J
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_natural_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
@@ -168,7 +168,7 @@ class WeakFormProblem1d:
         return compiled_jacobians
 
     @classmethod
-    @lru_cache
+    @cache
     def boundary_condition_expressions(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
 
@@ -184,7 +184,7 @@ class WeakFormProblem1d:
         return expressions
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
@@ -202,7 +202,7 @@ class WeakFormProblem1d:
         return compiled_expressions
 
     @classmethod
-    @lru_cache
+    @cache
     def boundary_condition_jacobians(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
         J = []
@@ -211,7 +211,7 @@ class WeakFormProblem1d:
         return J
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
@@ -230,7 +230,7 @@ class WeakFormProblem1d:
         return compiled_jacobians
 
     @classmethod
-    @lru_cache
+    @cache
     def elemental_residuals(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
 
@@ -259,7 +259,7 @@ class WeakFormProblem1d:
         return residuals
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_elemental_residuals(cls, order, *args, **kwargs):
         if print_compilation_updates:
@@ -333,7 +333,7 @@ class WeakFormProblem1d:
         return R.reshape(-1)
 
     @classmethod
-    @lru_cache
+    @cache
     def elemental_jacobians(cls, order=1):
         polynomial = HermiteInterpolatingPolynomial.from_cache(order, cls.argument)
         J = []
@@ -342,7 +342,7 @@ class WeakFormProblem1d:
         return J
 
     @classmethod
-    @lru_cache
+    @cache
     #@disk.cache
     def compiled_elemental_jacobians(cls, order, *args, **kwargs):
         if print_compilation_updates:

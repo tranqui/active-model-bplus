@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# Use @lru_cache decorator for caching directly in memory without disk.
-from functools import lru_cache
+# Use @cache and @cached_property decorators for caching directly in memory without disk.
+from functools import cache, cached_property
 
 # # Create directory in the temp folder for caching to the disk.
 # from pathlib import Path
