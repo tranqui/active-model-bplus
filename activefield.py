@@ -5,7 +5,7 @@ import sympy as sp
 
 from interpolate import HermiteInterpolator
 from ode import WeakFormProblem1d
-from cache import cache, cached_property
+from cache import cache, cached_property, disk_cache
 
 class symbols:
     """Variables common across expressions."""
@@ -106,7 +106,7 @@ class Expression:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_function(cls, derivative=0):
         """Compile the function so that it can be numerically evaluated with native python
         structures, if not already done so for this expression.
@@ -201,6 +201,7 @@ class Pseudopotential(Expression):
     @classmethod
     @property
     @cache
+    @disk_cache
     def expression(cls):
         phi = symbols.density
         f = cls.free_energy_density.expression

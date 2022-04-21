@@ -8,7 +8,7 @@ import sympy as sp
 from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
 import differentiate
 
-from cache import cache, cached_property
+from cache import cache, cached_property, disk_cache
 
 import sys
 # print_compilation_updates = None
@@ -119,7 +119,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_natural_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling natural boundary conditions...' % cls.name)
@@ -147,7 +147,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_natural_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling natural boundary Jacobians...' % cls.name)
@@ -185,7 +185,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_boundary_condition_expressions(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling boundary conditions...' % cls.name)
@@ -212,7 +212,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_boundary_condition_jacobians(cls, order=1, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling boundary Jacobians...' % cls.name)
@@ -260,7 +260,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_elemental_residuals(cls, order, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling main residuals...' % cls.name)
@@ -343,7 +343,7 @@ class WeakFormProblem1d:
 
     @classmethod
     @cache
-    #@disk.cache
+    @disk_cache
     def compiled_elemental_jacobians(cls, order, *args, **kwargs):
         if print_compilation_updates:
             print_compilation_updates.write('%s: compiling main Jacobians...' % cls.name)

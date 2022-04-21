@@ -7,7 +7,7 @@ from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
 from sympy.polys.specialpolys import interpolating_poly
 
-from cache import cache
+from cache import cache, disk_cache
 
 class LagrangeInterpolator:
     """A simple 1d interpolator using Lagrange polynomials. This is convenient for
