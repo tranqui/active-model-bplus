@@ -274,6 +274,10 @@ class ActiveDroplet(HermiteInterpolator):
     def pseudopressure1(self):
         return self.pseudopressure(self.x[-1])
 
+    @property
+    def pseudopressure_drop(self):
+        return self.pseudopressure0 - self.pseudopressure1
+
     @classmethod
     @property
     def nonlocal_integrand_expression(cls):
@@ -341,7 +345,7 @@ class ActiveDroplet(HermiteInterpolator):
         return integrand
 
     @property
-    def pseudopressure_drop(self):
+    def surface_tension_pseudopressure_drop(self):
         integrand = self.surface_tension_integrand(self.phi0)
         phi, r = sp.Function('\phi'), symbols.r
         return self.integrate(integrand, phi, r)
