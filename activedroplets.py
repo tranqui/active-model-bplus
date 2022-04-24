@@ -7,6 +7,7 @@ import sympy as sp
 
 from interpolate import HermiteInterpolator
 from activefield import symbols, Phi4Pseudopotential, ActiveModelBSphericalInterface
+from cache import cache, cached_property, disk_cache
 
 class ProbabilityDistribution:
     parameters = []
@@ -127,16 +128,29 @@ class SechSquaredDistribution(ProbabilityDistribution):
 
 class ActiveDroplet(HermiteInterpolator):
     @classmethod
+    @property
+    def guess_droplet_profile(cls):
+        return SechDistribution
+
+    @classmethod
+    @cache
+    @disk_cache
+    def guess_profile(cls, deriv=0):
+        f = cls.guess_droplet_profile
+        phi0, phi1 = sp.symbols('phi0, phi1')
+        guess = phi0 + (phi1 - phi0) * f.cumulative_distribution_function
+        arguments = [f.argument, phi0, phi1] + f.parameters
+        return sp.lambdify(arguments, guess.diff(f.argument, deriv))
+
+    @classmethod
     def from_guess(cls, field_theory, R, phi0, phi1, domain_size=None, order=4,
-                   xsample=None, npoints=51, interfacial_width=None, **kwargs):
+                   xsample=None, npoints=101, interfacial_width=None, **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__."""
         if domain_size is None: domain_size = 5*R
         if interfacial_width is None: interfacial_width = field_theory.passive_bulk_interfacial_width
 
         if xsample is None:
             xdist = SechDistribution(R, interfacial_width)
-            #xdist = SechSquaredDistribution(R, interfacial_width)
-            #xdist = LogNormalDistribution(np.log(R), 0.25)
 
             # Generate points heavily distributed around the boundary by the above distribution.
             l = min(10*interfacial_width, R)
@@ -157,15 +171,11 @@ class ActiveDroplet(HermiteInterpolator):
             xright = np.linspace(xsample[-1], domain_size, npoints_right+1)[1:]
             xsample = np.concatenate((xleft, xsample, xright))
 
-        guess = phi0 + (phi1 - phi0) * xdist.cumulative_distribution_function
-        guess = guess.subs({p: v for p, v in zip(xdist.parameters, xdist.parameter_values)})
-
         weights = np.zeros((len(xsample), order))
-        for c in range(order):
-            f = guess.diff(xdist.argument, c)
-            f = sp.lambdify(xdist.argument, f)
+        for deriv in range(order):
             with np.errstate(invalid='ignore', divide='ignore'):
-                weights[:,c] = sp.lambdify(xdist.argument, guess.diff(xdist.argument, c))(xsample)
+                f = cls.guess_profile(deriv)
+                weights[:,deriv] = f(xsample, phi0, phi1, *xdist.parameter_values)
         weights[~np.isfinite(weights)] = 0
 
         drop = cls(field_theory, R, xsample, weights, **kwargs)
@@ -184,9 +194,7 @@ class ActiveDroplet(HermiteInterpolator):
     @property
     def summary(self):
         P0, P1 = self.pseudopressure0, self.pseudopressure1
-        mu0, mu1 = self.mu0, self.mu1
-        S = self.pseudopressure_drop
-        return 'zeta=%g lamb=%g R=%g: phi=[%.4f->%.4f] mu=[%.4f->%.4f] P=[%.4f->%.4f] S=%.4f dP=%.4f dmu=%.4g dP-S=%.4g nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.R, self.phi0, self.phi1, mu0, mu1, P0, P1, S, P0-P1, mu1-mu0, P0-P1-S, len(self.x))
+        return 'zeta=%g lamb=%g R=%g d=%d: phi=[%.4f->%.4f] P=[%.4f->%.4f] dP=%.4f nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.R, self.field_theory.d, self.phi0, self.phi1, P0, P1, P0-P1, len(self.x))
 
     @property
     def ode(self):
@@ -203,24 +211,20 @@ class ActiveDroplet(HermiteInterpolator):
         return self.x[-1]
 
     def refine(self, refinement_tol=1e-6, max_refinement_iters=None, nrefinement_iters=0,
-               max_points=int(1e6), **kwargs):
+               max_points=int(1e4), **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__."""
         if max_refinement_iters and nrefinement_iters >= max_refinement_iters:
             raise RuntimeError('result not converging after %d mesh refinement iterations!' % niters)
 
         if refinement_tol is np.inf: return self
 
-        f = sp.Function('f')
-        x = symbols.x
-
         ode = self.ode
         h = ode.strong_form
-        h = h.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
-        h = h.subs({ode.argument: x, ode.unknown_function: f})
         error_estimator = h**2
+        parameters = {p: v for p, v in zip(ode.parameters, ode.parameter_values)}
 
         #I = self.analytic_integral(error_estimator, f, x)
-        I = self.numerical_integral(error_estimator, f, x)
+        I = self.numerical_integral(error_estimator, ode.unknown_function, ode.argument, parameters)
         errors = np.abs(np.diff(I.weights[:,0]))
 
         if np.any(errors > refinement_tol):
@@ -280,7 +284,7 @@ class ActiveDroplet(HermiteInterpolator):
         integrand = zeta * (d-1) * phi(r).diff(r)**2 / r
         return integrand, phi, r
 
-    @property
+    @cached_property
     def mu(self):
         integrand, phi, r = self.nonlocal_integrand_expression
 
@@ -301,18 +305,11 @@ class ActiveDroplet(HermiteInterpolator):
 
     @property
     def mu0(self):
-        integrand, phi, r = self.nonlocal_integrand_expression
-        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
-                                                         self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
-
-        local_part = self.field_theory.free_energy_density(self.phi0, derivative=1) - self.field_theory.K*self(self.x[0],2)
-        nonlocal_part = self.integrate(integrand, phi, r)
-        return local_part + nonlocal_part
+        return self.mu(self.x[0])
 
     @property
     def mu1(self):
-        return self.field_theory.free_energy_density(self.phi1, derivative=1) - self.field_theory.K*self(self.x[-1],2)
+        return self.mu(self.x[-1])
 
     @classmethod
     @property

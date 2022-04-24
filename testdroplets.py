@@ -103,10 +103,13 @@ def test_varying_radius(R, zeta=0, lamb=0, **kwargs):
     last_droplet = None
 
     R = np.sort(R)
-    for r in np.flipud(R):
-        last_droplet = droplet(zeta, lamb, r, guess=last_droplet, **kwargs)
+    #for r in np.flipud(R):
+    for r in R:
+        #last_droplet = droplet(zeta, lamb, r, guess=last_droplet, **kwarg)s
+        try: last_droplet = droplet(zeta, lamb, r, **kwargs)
+        except: last_droplet = droplet(zeta, lamb, r, guess=last_droplet, **kwargs)
         droplets += [last_droplet]
-    droplets.reverse()
+    #droplets.reverse()
 
     return droplets
 
@@ -207,12 +210,22 @@ def show_size_dependence(*args):
 
     plt.show()
 
-def test_against_literature(R=np.arange(10, 41, 1)):
-    drops1 = test_varying_radius(R, -1, 0.5, d=2)
-    drops2 = test_varying_radius(R, -4, -1, d=2)
-    drops3 = test_varying_radius(R, -1, 0.5, d=3)
-    drops4 = test_varying_radius(R, -4, -1, d=3)
-    test_show_size_dependence(drops1, drops2, drops3, drops4)
+def test_against_literature(R=np.arange(10, 101, 1)):
+    import cloudpickle
+    import os
+
+    for d in [2, 3]:
+        for zeta, lamb in [[-1, 0.5], [-4, -1]]:
+            cache_path = 'zeta=%g_lamb=%g_d=%d.drops' % (zeta, lamb, d)
+            if os.path.exists(cache_path): continue
+
+            try:
+                drops = test_varying_radius(R, zeta, lamb, d=d)
+
+                with open(cache_path, 'wb') as f:
+                    cloudpickle.dump(drops, f)
+            except Exception as e:
+                print(e)
 
 if __name__ == '__main__':
     #np.set_printoptions(4, suppress=True, linewidth=10000)

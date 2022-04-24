@@ -7,7 +7,7 @@ from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
 from sympy.polys.specialpolys import interpolating_poly
 
-from cache import cache, disk_cache
+from cache import cache
 
 class LagrangeInterpolator:
     """A simple 1d interpolator using Lagrange polynomials. This is convenient for
@@ -397,7 +397,44 @@ class HermiteInterpolator:
 
         return HermiteInterpolator(x, result)
 
-    def numerical_integral(self, f, u=sp.Function('f'), arg=None):
+    @classmethod
+    @cache
+    def compiled_numerical_integrator(cls, order, f, u=sp.Function('f'), arg=None, parameters=()):
+        """
+        Compiles a Sympy expression into a function that calculates the integral of a function
+        across one element of a domain via Gaussian quadrature.
+
+        This is a utility function for use with numerical_integral.
+
+        Args:
+            f: function to integrate over. Should be a function of u(arg) and arg.
+            u: symbol used for interpolated function
+            arg: symbol used for argument of f. If None then will assume local variable used in polynomial.
+            parameters: container of any additional symbols taken as parameters to f.
+        Returns:
+            Function that integrates across f across an interpolated element.
+        """
+        polynomial = HermiteInterpolatingPolynomial.from_cache(order)
+        if arg is None: arg = polynomial.x
+
+        expr = f.subs(u, sp.Lambda(polynomial.x, polynomial.general_expression))
+
+        # We use a fixed-order Gaussian quadrature rule for the integration, so we need to
+        # determine the location of points to sample and the weights. These are pre-calculated
+        # in numpy in the [-1, 1] interval:
+        roots, weights = _cached_roots_legendre(2*order+1)
+        # Transform to general interval [x0, x1]:
+        x = polynomial.inverse_coordinate_transform.subs(polynomial.x, arg)
+        dxds = sp.Lambda(arg, x.diff(arg))
+        x = sp.Lambda(arg, x)
+        weights = [w*dxds(r) for r, w in zip(roots, weights)]
+        roots = [x(r) for r in roots]
+
+        single_integral = sum([w*expr.subs(arg, p).doit() for p, w in zip(roots, weights)])
+        weight_variables = polynomial.weight_variables
+        return sp.lambdify([polynomial.x0, polynomial.x1] + weight_variables + list(parameters), single_integral)
+
+    def numerical_integral(self, f, u=sp.Function('f'), arg=None, parameters={}):
         """
         Numerically calculates a definite integral of a function within the domain,
         from the left-most boundary up to an arbitrary point within the domain, i.e.
@@ -416,31 +453,15 @@ class HermiteInterpolator:
         Returns:
             HermiteInterpolator object for the interpolated integral.
         """
-        if arg is None: arg = self.local_variable
-
-        polynomial = self.interpolating_polynomial
-        expr = f.subs(u, sp.Lambda(self.local_variable, polynomial.general_expression))
-
-        # We use a fixed-order Gaussian quadrature rule for the integration, so we need to
-        # determine the location of points to sample and the weights. These are pre-calculated
-        # in numpy in the [-1, 1] interval:
-        roots, weights = _cached_roots_legendre(2*self.order+1)
-        # Transform to general interval [x0, x1]:
-        x = polynomial.inverse_coordinate_transform.subs(self.local_variable, arg)
-        dxds = sp.Lambda(arg, x.diff(arg))
-        x = sp.Lambda(arg, x)
-        weights = [w*dxds(r) for r, w in zip(roots, weights)]
-        roots = [x(r) for r in roots]
-
-        single_integral = sum([w*expr.subs(arg, p).doit() for p, w in zip(roots, weights)])
-        integrator = sp.lambdify([polynomial.x0, polynomial.x1] + self.local_node_variables, single_integral)
+        integrator = self.compiled_numerical_integrator(self.order, f, u, arg, tuple(parameters.keys()))
 
         xleft, xright = self.x[:-1], self.x[1:]
         weights = np.hstack((self.weights[:-1], self.weights[1:]))
-        integral_per_element = integrator(xleft, xright, *weights.T)
+        integral_per_element = integrator(xleft, xright, *weights.T, *parameters.values())
 
-        # Sometimes the integrals evaluate to a constant (normally zero), in which case
-        # we must buffer it out as a vector to prevent subsequent type errors.
+        # Sometimes the integrals evaluate to a constant (normally zero), which sympy will return
+        # as a single scalar rather than a vector of constants. In this case we must buffer it
+        # out as a vector to prevent subsequent type errors.
         if np.isscalar(integral_per_element):
             integral_per_element = [integral_per_element]*len(xleft)
 

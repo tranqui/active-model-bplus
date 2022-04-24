@@ -288,7 +288,7 @@ class WeakFormProblem1d:
         w = np.hstack((weights[:-1], weights[1:]))
 
         for var, func in zip(variables, functions):
-            with np.errstate(divide='raise'):
+            with np.errstate(all='raise'):
                 r = func(xleft, xright, *w.T, *self.parameter_values)
 
             boundary, deriv = var.indices
@@ -466,7 +466,7 @@ class WeakFormProblem1d:
         return Jfull
 
     def solve(self, nodes, weights,
-              newton_atol=1e-8, newton_rtol=1e-8, max_newton_iters=25,
+              newton_atol=1e-6, newton_rtol=1e-8, max_newton_iters=25, exceed_max_iters='warn',
               print_updates=None, **kwargs):
         nelements, order = weights.shape
         nelements -= 1
@@ -482,7 +482,15 @@ class WeakFormProblem1d:
 
         while np.any(np.abs(R) > newton_atol):
             if iters >= max_newton_iters:
+                message = 'did not converge during ODE solve step after %d iters with %d nodes!' % (iters, nodes.size)
+                if exceed_max_iters == 'warn':
+                    sys.stderr.write('warning: %s\n' % message)
+                    break
+                elif exceed_max_iters == 'raise':
+                    raise RuntimeError(message)
+
                 # import sys
+                # sys.stderr.write('nnodes: %d\n' % nodes.size)
                 # sys.stderr.write('residuals: %r\n' % R)
 
                 # import matplotlib.pyplot as plt
@@ -501,8 +509,11 @@ class WeakFormProblem1d:
                 # plt.plot(xx, f(xx), lw=0.5, c=pl.get_color())
                 # plt.title('current solution')
 
+                # plt.figure()
+                # plt.plot(nodes, relative_change.reshape(nodes.size,-1), lw=0.5)
+                # plt.title('relative change')
+
                 # plt.show()
-                raise RuntimeError('did not converge during ODE solve step after %d iters!' % iters)
 
             J = self.jacobian(nodes, weights)
 
@@ -517,10 +528,13 @@ class WeakFormProblem1d:
             iters += 1
             if print_updates: print_updates.write('%r R=%r\n' % (iters, update(R)))
 
-            # relative_change = np.divide(delta, weights)
-            # relative_change[~np.isfinite(relative_change)] = 0
+            with np.errstate(invalid='ignore', divide='ignore'):
+                relative_change = np.divide(delta, weights).reshape(-1)
+            relative_change[~np.isfinite(relative_change)] = 0
+            relative_change[np.abs(R) < newton_atol] = 0
+            if np.linalg.norm(relative_change) < newton_rtol: break
             #import sys; sys.stderr.write('%d %.4g\n' % (iters, np.linalg.norm(relative_change)))
-            if np.linalg.norm(delta) < newton_rtol: break
+            #if np.linalg.norm(delta) < newton_rtol: break
 
         if print_updates:
             print_updates.write('\nsolution:\n%r\n' % np.hstack([nodes.reshape(-1,1),weights]))
