@@ -318,14 +318,38 @@ class ActiveDroplet(HermiteInterpolator):
     @classmethod
     @property
     def surface_tension_integrand_expression(cls):
+    #def surface_tension_integrand_expression(cls):
+        phi = sp.Function('\phi')
+        r = symbols.r
+        zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
+
+        exp_factor = (zeta - 2*lamb) / K
+        s0_integrand = zeta * phi(r).diff(r)**2 / r
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
+        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+
+        # The expression is numerically unstable as the activity coefficients cancel out,
+        # so we switch to a Taylor series expansion there:
+        order, threshold = 4, 1e-4
+        expansion = integrand.series(symbols.zeta, 2*symbols.lamb, order).removeO().simplify()
+        integrand = sp.Piecewise( (expansion, sp.Abs(symbols.zeta - 2*symbols.lamb) < threshold),
+                                  (integrand, True) )
+
+        return integrand
+
+    @classmethod
+    @property
+    @cache
+    def surface_tension_integrand_expression2(cls):
         phi = sp.Function('\phi')
         r = symbols.r
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
         phi0 = sp.Symbol('\phi0')
 
-        s0_integrand = zeta * sp.exp( phi0 * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * (zeta - 2*lamb)/K ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) * K / (zeta - 2*lamb)
+        exp_factor = (zeta - 2*lamb) / K
+        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 / r
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
+        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
 
         # The expression is numerically unstable as the activity coefficients cancel out,
         # so we switch to a Taylor series expansion there:
@@ -345,8 +369,22 @@ class ActiveDroplet(HermiteInterpolator):
         return integrand
 
     @property
+    def surface_tension_integrand2(self):
+        integrand = self.surface_tension_integrand_expression2(self.phi0)
+        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
+                                                         self.pseudopotential.parameter_values)})
+        integrand = integrand.subs(symbols.d, self.d)
+        return integrand
+
+    @property
     def surface_tension_pseudopressure_drop(self):
-        integrand = self.surface_tension_integrand(self.phi0)
+        integrand = self.surface_tension_integrand
+        phi, r = sp.Function('\phi'), symbols.r
+        return self.integrate(integrand, phi, r)
+
+    @property
+    def surface_tension_pseudopressure_drop2(self):
+        integrand = self.surface_tension_integrand2
         phi, r = sp.Function('\phi'), symbols.r
         return self.integrate(integrand, phi, r)
 
