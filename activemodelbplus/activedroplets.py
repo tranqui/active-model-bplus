@@ -5,9 +5,9 @@ from scipy.optimize import newton_krylov
 from scipy.special import erf, erfinv
 import sympy as sp
 
-from interpolate import HermiteInterpolator
-from activefield import symbols, Phi4Pseudopotential, ActiveModelBSphericalInterface
-from cache import cache, cached_property, disk_cache
+from .interpolate import HermiteInterpolator
+from .activefield import symbols, Phi4Pseudopotential, ActiveModelBSphericalInterface
+from .cache import cache, cached_property, disk_cache
 
 class ProbabilityDistribution:
     parameters = []

@@ -3,9 +3,9 @@
 import numpy as np, matplotlib.pyplot as plt
 import sympy as sp
 
-from interpolate import HermiteInterpolator
-from ode import WeakFormProblem1d
-from cache import cache, cached_property, disk_cache
+from .interpolate import HermiteInterpolator
+from .ode import WeakFormProblem1d
+from .cache import cache, cached_property, disk_cache
 
 class symbols:
     """Variables common across expressions."""

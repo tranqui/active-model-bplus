@@ -5,10 +5,9 @@ from scipy.linalg import solve_banded
 from scipy.integrate._quadrature import _cached_roots_legendre
 import sympy as sp
 
-from interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
-import differentiate
-
-from cache import cache, cached_property, disk_cache
+from .interpolate import HermiteInterpolatingPolynomial, HermiteInterpolator
+from . import differentiate
+from .cache import cache, cached_property, disk_cache
 
 import sys
 # print_compilation_updates = None
