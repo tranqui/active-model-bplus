@@ -256,6 +256,81 @@ class Phi4Pseudopotential(Pseudopotential):
     def free_energy_density(cls):
         return Phi4FreeEnergyDensity
 
+class ActiveModelBPlanarInterface(WeakFormProblem1d):
+    argument = sp.Symbol('x')
+    parameters = [symbols.domain_size,
+                  symbols.zeta, symbols.lamb,
+                  symbols.K, symbols.t, symbols.u, symbols.d]
+
+    @classmethod
+    @property
+    def analytic_solution(cls):
+        raise RuntimeError('no known analytic solution to problem!')
+
+    @classmethod
+    @property
+    def bulk_free_energy(cls):
+        return Phi4FreeEnergyDensity.expression
+
+    @classmethod
+    @property
+    def free_energy_terms(cls):
+        x, d, K = cls.argument, symbols.d, symbols.K
+        phi = cls.unknown_function(x)
+
+        # Terms from bulk free energy density (Ginzburg-Landau phi4 model).
+        df = cls.bulk_free_energy.diff(symbols.density)
+        df = df.subs(symbols.density, phi)
+        # Add square-gradient term (which is a Laplacian after the functional integral):
+        df -= K * phi.diff(x,2)
+        return df
+
+    @classmethod
+    @property
+    def mu_term(cls):
+        x, d, K, zeta, lamb = cls.argument, symbols.d, symbols.K, symbols.zeta, symbols.lamb
+        phi = cls.unknown_function(x)
+        return cls.free_energy_terms + (lamb - zeta/2) * phi.diff(x)**2
+
+    @classmethod
+    @property
+    @cache
+    def strong_form(cls):
+        """dmu/dr."""
+        x = cls.argument
+        return cls.mu_term.diff(x).simplify()
+
+    @classmethod
+    @property
+    def test_function(cls):
+        x = cls.argument
+        return cls.b(x)
+
+    @classmethod
+    @property
+    @cache
+    def weak_form(cls):
+        x = cls.argument
+        expr = -cls.test_function.diff(x) * cls.mu_term
+        return expr.simplify()
+
+    @classmethod
+    @property
+    @cache
+    def natural_boundary_condition(cls):
+        expr = cls.mu_term * cls.test_function
+        return expr.simplify()
+
+    @classmethod
+    @property
+    def boundary_conditions(cls):
+        x, phi = cls.argument, cls.unknown_function
+
+        return {(-symbols.domain_size/2, phi(x).diff(x), 0),
+                (0, phi(x), 0),
+                (0, cls.strong_form, 0),
+                (symbols.domain_size/2, phi(x).diff(x), 0)}
+
 class ActiveModelBSphericalInterface(WeakFormProblem1d):
     argument = sp.Symbol('r')
     parameters = [symbols.droplet_radius, symbols.domain_size,

@@ -6,7 +6,7 @@ from scipy.special import erf, erfinv
 import sympy as sp
 
 from .interpolate import HermiteInterpolator
-from .activefield import symbols, Phi4Pseudopotential, ActiveModelBSphericalInterface
+from .activefield import symbols, Phi4Pseudopotential, ActiveModelBPlanarInterface, ActiveModelBSphericalInterface
 from .cache import cache, cached_property, disk_cache
 
 class ProbabilityDistribution:
@@ -126,89 +126,85 @@ class SechSquaredDistribution(ProbabilityDistribution):
         tanh_const = sp.tanh(cls.mu / cls.xi)
         return cls.mu + cls.xi * sp.atanh(x - tanh_const*(1 - x))
 
-class ActiveDroplet(HermiteInterpolator):
+class ActiveBinodal(HermiteInterpolator):
     @classmethod
     @property
-    def guess_droplet_profile(cls):
+    def guess_profile_distribution(cls):
         return SechDistribution
 
     @classmethod
     @cache
     @disk_cache
-    def guess_profile(cls, deriv=0):
-        f = cls.guess_droplet_profile
+    def guess_profile_function(cls, deriv=0):
+        f = cls.guess_profile_distribution
         phi0, phi1 = sp.symbols('phi0, phi1')
         guess = phi0 + (phi1 - phi0) * f.cumulative_distribution_function
         arguments = [f.argument, phi0, phi1] + f.parameters
         return sp.lambdify(arguments, guess.diff(f.argument, deriv))
 
     @classmethod
-    def from_guess(cls, field_theory, R, phi0, phi1, domain_size=None, order=4,
-                   xsample=None, npoints=101, interfacial_width=None, **kwargs):
+    def guess_profile(cls, field_theory, phi0, phi1, domain_size=None, order=4,
+                      xsample=None, npoints=101, interfacial_width=None, **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__."""
-        if domain_size is None: domain_size = 5*R
         if interfacial_width is None: interfacial_width = field_theory.passive_bulk_interfacial_width
+        if domain_size is None: domain_size = 50*interfacial_width
 
         if xsample is None:
-            xdist = SechDistribution(R, interfacial_width)
+            xdist = SechDistribution(0, interfacial_width)
 
-            # Generate points heavily distributed around the boundary by the above distribution.
-            l = min(10*interfacial_width, R)
-            ncentral_points = (9*npoints)//10
-            npoints_left = (ncentral_points+1)//2
-            npoints_right = ncentral_points - npoints_left
-            x0 = np.concatenate((np.linspace(xdist.cdf(R-l), xdist.cdf(R), npoints_left),
-                                 np.linspace(xdist.cdf(R), xdist.cdf(R+l), npoints_right+1)[1:]))
+            l = 0.5*domain_size
+            x0 = np.linspace(xdist.cdf(-l), xdist.cdf(l), npoints)
             xsample = xdist.idf(x0)
-            xsample[0] = R-l
-            xsample[-1] = R+l
-
-            # Generate some points left and right of the boundary region.
-            if l == R: npoints_left = 0
-            else: npoints_left = (npoints - ncentral_points)//2
-            npoints_right = npoints - ncentral_points - npoints_left
-            xleft = np.linspace(0, xsample[0], npoints_left+1)[:-1]
-            xright = np.linspace(xsample[-1], domain_size, npoints_right+1)[1:]
-            xsample = np.concatenate((xleft, xsample, xright))
+            # Correct for any numerical errors at the boundary.
+            xsample[0] = -l
+            xsample[-1] = l
 
         weights = np.zeros((len(xsample), order))
         for deriv in range(order):
             with np.errstate(invalid='ignore', divide='ignore'):
-                f = cls.guess_profile(deriv)
+                f = cls.guess_profile_function(deriv)
                 weights[:,deriv] = f(xsample, phi0, phi1, *xdist.parameter_values)
         weights[~np.isfinite(weights)] = 0
 
-        drop = cls(field_theory, R, xsample, weights, **kwargs)
+        return xsample, weights
+
+    @classmethod
+    def from_guess(cls, field_theory, *args, **kwargs):
+        xsample, weights = cls.guess_profile(field_theory, *args, **kwargs)
+        drop = cls(field_theory, xsample, weights, **kwargs)
         return drop
 
-    def __init__(self, field_theory, R, *args, phi1=None, print_updates=None, **kwargs):
+    def __init__(self, field_theory, *args, print_updates=None, **kwargs):
         """Possible kwargs are arguments to ode.WeakFormProblem1d.__init__."""
         self.field_theory = field_theory
-        self.R = R
         super().__init__(*args, **kwargs)
         self.solve(print_updates=print_updates, **kwargs)
 
     def __repr__(self):
-        return '<ActiveDroplet zeta=%g lamb=%g R=%g nnodes=%d>' % (self.field_theory.zeta, self.field_theory.lamb, self.R, len(self.x))
+        return '<ActiveBinodal zeta=%g lamb=%g phi=[%.4f->%.4f] nnodes=%d>' % (self.field_theory.zeta, self.field_theory.lamb, self.phi0, self.phi1, len(self.x))
 
     @property
     def summary(self):
         P0, P1 = self.pseudopressure0, self.pseudopressure1
-        return 'zeta=%g lamb=%g R=%g d=%d: phi=[%.4f->%.4f] P=[%.4f->%.4f] dP=%.4f nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.R, self.field_theory.d, self.phi0, self.phi1, P0, P1, P0-P1, len(self.x))
+        return 'zeta=%g lamb=%g: phi=[%.4f->%.4f] P=[%.4f->%.4f] dP=%.4f nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.phi0, self.phi1, P0, P1, P0-P1, len(self.x))
 
     @property
     def ode(self):
         constant_params = tuple(self.field_theory.pseudopotential.parameter_values + (self.field_theory.d,))
-        return ActiveModelBSphericalInterface(self.R, self.domain_size, *constant_params)
+        return ActiveModelBPlanarInterface(self.domain_size, *constant_params)
+
+    @property
+    def interface_location(self):
+        return 0
 
     def solve(self, *args, **kwargs):
         with np.errstate(all='raise'):
             self.weights = self.ode.solve(self.x, self.weights, *args, **kwargs)
-        assert np.sign(self(self.R, derivative=1)) == np.sign(self.phi1 - self.phi0)
+        assert np.sign(self(self.interface_location, derivative=1)) == np.sign(self.phi1 - self.phi0)
 
     @property
     def domain_size(self):
-        return self.x[-1]
+        return self.x[-1] - self.x[0]
 
     def refine(self, refinement_tol=1e-6, max_refinement_iters=None, nrefinement_iters=0,
                max_points=int(1e4), **kwargs):
@@ -241,10 +237,9 @@ class ActiveDroplet(HermiteInterpolator):
             for c in range(order):
                 new_weights[:,c] = self(new_x, c)
 
-            drop = ActiveDroplet(self.field_theory, self.R, new_x, new_weights, **kwargs)
-            return drop.refine(refinement_tol, max_refinement_iters, nrefinement_iters+1, max_points, **kwargs)
-
-        return self
+            self.x = new_x
+            self.weights = new_weights
+            self.refine(refinement_tol, max_refinement_iters, nrefinement_iters+1, max_points, **kwargs)
 
     @property
     def d(self):
@@ -277,6 +272,187 @@ class ActiveDroplet(HermiteInterpolator):
     @property
     def pseudopressure_drop(self):
         return self.pseudopressure0 - self.pseudopressure1
+
+    @classmethod
+    @property
+    def nonlocal_integrand_expression(cls):
+        phi = sp.Function('\phi')
+        r = symbols.r
+        zeta, lamb, K, d = symbols.zeta, symbols.lamb, symbols.K, symbols.d
+
+        integrand = zeta * (d-1) * phi(r).diff(r)**2 / r
+        return integrand, phi, r
+
+    @cached_property
+    def mu(self):
+        integrand, phi, r = self.nonlocal_integrand_expression
+
+        ode = self.ode
+        local_part = ode.local_term
+        local_part = local_part.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
+        local_part = local_part.subs({ode.argument: r, ode.unknown_function: phi})
+        local_part = self.evaluate(local_part, phi, r, order=1, singularity_at_origin=True)
+
+        integrand = integrand.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
+        nonlocal_part = self.numerical_integral(integrand, phi, r)
+        # Reverse order of integration so it measures the change in mu from r->\infty
+        nonlocal_part.weights[:,0] = nonlocal_part.weights[-1,0] - nonlocal_part.weights[:,0]
+
+        assert local_part.x.size == nonlocal_part.x.size
+        assert local_part.weights.shape == nonlocal_part.weights.shape
+        return HermiteInterpolator(local_part.x, local_part.weights + nonlocal_part.weights)
+
+    @property
+    def mu0(self):
+        return self.mu(self.x[0])
+
+    @property
+    def mu1(self):
+        return self.mu(self.x[-1])
+
+    @classmethod
+    @property
+    def surface_tension_integrand_expression(cls):
+    #def surface_tension_integrand_expression(cls):
+        phi = sp.Function('\phi')
+        r = symbols.r
+        zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
+
+        exp_factor = (zeta - 2*lamb) / K
+        s0_integrand = zeta * phi(r).diff(r)**2 / r
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
+        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+
+        # The expression is numerically unstable as the activity coefficients cancel out,
+        # so we switch to a Taylor series expansion there:
+        order, threshold = 4, 1e-4
+        expansion = integrand.series(symbols.zeta, 2*symbols.lamb, order).removeO().simplify()
+        integrand = sp.Piecewise( (expansion, sp.Abs(symbols.zeta - 2*symbols.lamb) < threshold),
+                                  (integrand, True) )
+
+        return integrand
+
+    @classmethod
+    @property
+    @cache
+    def surface_tension_integrand_expression2(cls):
+        phi = sp.Function('\phi')
+        r = symbols.r
+        zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
+        phi0 = sp.Symbol('\phi0')
+
+        exp_factor = (zeta - 2*lamb) / K
+        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 / r
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
+        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+
+        # The expression is numerically unstable as the activity coefficients cancel out,
+        # so we switch to a Taylor series expansion there:
+        order, threshold = 4, 1e-4
+        expansion = integrand.series(symbols.zeta, 2*symbols.lamb, order).removeO().simplify()
+        integrand = sp.Piecewise( (expansion, sp.Abs(symbols.zeta - 2*symbols.lamb) < threshold),
+                                  (integrand, True) )
+
+        return sp.Lambda(phi0, integrand)
+
+    @property
+    def surface_tension_integrand(self):
+        integrand = self.surface_tension_integrand_expression
+        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
+                                                         self.pseudopotential.parameter_values)})
+        integrand = integrand.subs(symbols.d, self.d)
+        return integrand
+
+    @property
+    def surface_tension_integrand2(self):
+        integrand = self.surface_tension_integrand_expression2(self.phi0)
+        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
+                                                         self.pseudopotential.parameter_values)})
+        integrand = integrand.subs(symbols.d, self.d)
+        return integrand
+
+    @property
+    def surface_tension_pseudopressure_drop(self):
+        integrand = self.surface_tension_integrand
+        phi, r = sp.Function('\phi'), symbols.r
+        return self.integrate(integrand, phi, r)
+
+    @property
+    def surface_tension_pseudopressure_drop2(self):
+        integrand = self.surface_tension_integrand2
+        phi, r = sp.Function('\phi'), symbols.r
+        return self.integrate(integrand, phi, r)
+
+class ActiveDroplet(ActiveBinodal):
+    @classmethod
+    def guess_profile(cls, field_theory, R, phi0, phi1, domain_size=None, order=4,
+                      xsample=None, npoints=101, interfacial_width=None, **kwargs):
+        """Possible kwargs are arguments to ActiveDroplet.__init__."""
+        if domain_size is None: domain_size = 5*R
+        if interfacial_width is None: interfacial_width = field_theory.passive_bulk_interfacial_width
+
+        if xsample is None:
+            xdist = SechDistribution(R, interfacial_width)
+
+            # Generate points heavily distributed around the boundary by the above distribution.
+            l = min(10*interfacial_width, R)
+            ncentral_points = (9*npoints)//10
+            npoints_left = (ncentral_points+1)//2
+            npoints_right = ncentral_points - npoints_left
+            x0 = np.concatenate((np.linspace(xdist.cdf(R-l), xdist.cdf(R), npoints_left),
+                                 np.linspace(xdist.cdf(R), xdist.cdf(R+l), npoints_right+1)[1:]))
+            xsample = xdist.idf(x0)
+            xsample[0] = R-l
+            xsample[-1] = R+l
+
+            # Generate some points left and right of the boundary region.
+            if l == R: npoints_left = 0
+            else: npoints_left = (npoints - ncentral_points)//2
+            npoints_right = npoints - ncentral_points - npoints_left
+            xleft = np.linspace(0, xsample[0], npoints_left+1)[:-1]
+            xright = np.linspace(xsample[-1], domain_size, npoints_right+1)[1:]
+            xsample = np.concatenate((xleft, xsample, xright))
+
+        weights = np.zeros((len(xsample), order))
+        for deriv in range(order):
+            with np.errstate(invalid='ignore', divide='ignore'):
+                f = cls.guess_profile_function(deriv)
+                weights[:,deriv] = f(xsample, phi0, phi1, *xdist.parameter_values)
+        weights[~np.isfinite(weights)] = 0
+
+        return xsample, weights
+
+    @classmethod
+    def from_guess(cls, field_theory, R, *args, **kwargs):
+        xsample, weights = cls.guess_profile(field_theory, R, *args, **kwargs)
+        drop = cls(field_theory, R, xsample, weights, **kwargs)
+        return drop
+
+    def __init__(self, field_theory, R, *args, **kwargs):
+        """Possible kwargs are arguments to ode.WeakFormProblem1d.__init__."""
+        self.R = R
+        super().__init__(field_theory, *args, **kwargs)
+
+    def __repr__(self):
+        return '<ActiveDroplet zeta=%g lamb=%g d=%d R=%g nnodes=%d>' % (self.field_theory.zeta, self.field_theory.lamb, self.d, self.R, len(self.x))
+
+    @property
+    def summary(self):
+        P0, P1 = self.pseudopressure0, self.pseudopressure1
+        return 'zeta=%g lamb=%g R=%g d=%d: phi=[%.4f->%.4f] P=[%.4f->%.4f] dP=%.4f nnodes=%d' % (self.field_theory.zeta, self.field_theory.lamb, self.R, self.field_theory.d, self.phi0, self.phi1, P0, P1, P0-P1, len(self.x))
+
+    @property
+    def ode(self):
+        constant_params = tuple(self.field_theory.pseudopotential.parameter_values + (self.field_theory.d,))
+        return ActiveModelBSphericalInterface(self.R, self.domain_size, *constant_params)
+
+    @property
+    def interface_location(self):
+        return self.R
+
+    @property
+    def domain_size(self):
+        return self.x[-1]
 
     @classmethod
     @property
@@ -436,8 +612,8 @@ class ActiveModelBPlus:
         return self.pseudodensity(phi)*self.free_energy_density(phi, derivative=1) - self.pseudopotential(phi)
 
     @property
-    def bulk_binodals(self, eps=1e-12):
-        phi_guess = np.array([-1, 1])
+    def binodal_densities(self, eps=1e-12):
+        phi_guess = np.array([1, -1])
         if np.abs(self.zeta - 2*self.lamb) < eps:
             return phi_guess
 
@@ -449,10 +625,21 @@ class ActiveModelBPlus:
 
         return phi
 
+    def binodal(self, domain_size=None, guess=None, **kwargs):
+        phi0, phi1 = self.binodal_densities
+
+        if guess is None:
+            profile = ActiveBinodal.from_guess(self, phi0, phi1, domain_size=domain_size, **kwargs)
+        else:
+            profile = ActiveBinodal(self, R, guess.x, guess.weights, **kwargs)
+
+        profile.refine(**kwargs)
+        return profile
+
     def droplet(self, R, phi0=None, phi1=None, domain_size=None, guess=None, **kwargs):
         """Possible kwargs are arguments to ActiveDroplet.__init__ and ActiveDroplet.refine."""
-        bulk_phi = self.bulk_binodals
-        if phi1 is None: phi1 = bulk_phi[0]
+        bulk_phi = self.binodal_densities
+        if phi1 is None: phi1 = bulk_phi[1]
         if phi0 is None: phi0 = bulk_phi[np.argmax(np.abs(bulk_phi - phi1))]
 
         if guess is None:
@@ -461,17 +648,18 @@ class ActiveModelBPlus:
             guess_x = guess.x * R / guess.R
             drop = ActiveDroplet(self, R, guess_x, guess.weights, **kwargs)
 
-        return drop.refine(**kwargs)
+        drop.refine(**kwargs)
+        return drop
 
-def bulk_binodals(zeta_lamb, *args, **kwargs):
+def binodal_densities(zeta_lamb, *args, **kwargs):
     """
     Args:
         zeta_lamb: the parameter $\zeta - 2*\lambda$.
     Returns:
-        Phi1 and phi2 or a sequence of (phi1,phi2) values for each zeta_lamb parameter.
+        Phi0 and phi1 or a sequence of (phi0,phi1) values for each zeta_lamb parameter.
     """
     zeta = lambda x: 1
     lamb = lambda x: 0.5*(zeta(x) - x)
-    phi = lambda x: tuple(ActiveModelBPlus(zeta(x), lamb(x), *args, **kwargs).bulk_binodals)
+    phi = lambda x: tuple(ActiveModelBPlus(zeta(x), lamb(x), *args, **kwargs).binodal_densities)
     phi = np.vectorize(phi)
     return phi(zeta_lamb)

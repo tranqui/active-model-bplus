@@ -614,7 +614,6 @@ class GinzburgLandauFlatInterface(WeakFormProblem1d):
     @property
     def boundary_conditions(cls):
         x, u = cls.x, cls.u
-        # return {(0, u(x), 0), (cls.domain_size, u(x), cls.binodal)}
         return {(-cls.domain_size, u(x), -cls.binodal),
                (0, u(x), 0),
                (cls.domain_size, u(x), cls.binodal)}
