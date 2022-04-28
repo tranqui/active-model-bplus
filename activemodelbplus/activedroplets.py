@@ -273,34 +273,13 @@ class ActiveBinodal(HermiteInterpolator):
     def pseudopressure_drop(self):
         return self.pseudopressure0 - self.pseudopressure1
 
-    @classmethod
-    @property
-    def nonlocal_integrand_expression(cls):
-        phi = sp.Function('\phi')
-        r = symbols.r
-        zeta, lamb, K, d = symbols.zeta, symbols.lamb, symbols.K, symbols.d
-
-        integrand = zeta * (d-1) * phi(r).diff(r)**2 / r
-        return integrand, phi, r
-
     @cached_property
     def mu(self):
-        integrand, phi, r = self.nonlocal_integrand_expression
-
+        x, phi = ode.argument, ode.unknown_function
         ode = self.ode
-        local_part = ode.local_term
-        local_part = local_part.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
-        local_part = local_part.subs({ode.argument: r, ode.unknown_function: phi})
-        local_part = self.evaluate(local_part, phi, r, order=1, singularity_at_origin=True)
-
-        integrand = integrand.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
-        nonlocal_part = self.numerical_integral(integrand, phi, r)
-        # Reverse order of integration so it measures the change in mu from r->\infty
-        nonlocal_part.weights[:,0] = nonlocal_part.weights[-1,0] - nonlocal_part.weights[:,0]
-
-        assert local_part.x.size == nonlocal_part.x.size
-        assert local_part.weights.shape == nonlocal_part.weights.shape
-        return HermiteInterpolator(local_part.x, local_part.weights + nonlocal_part.weights)
+        mu = ode.mu_term
+        mu = mu.subs({p: v for p, v in zip(ode.parameters, ode.parameter_values)})
+        return self.evaluate(mu, phi, x, order=1)
 
     @property
     def mu0(self):
@@ -312,16 +291,16 @@ class ActiveBinodal(HermiteInterpolator):
 
     @classmethod
     @property
+    @cache
     def surface_tension_integrand_expression(cls):
-    #def surface_tension_integrand_expression(cls):
         phi = sp.Function('\phi')
-        r = symbols.r
+        x = symbols.x
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
 
         exp_factor = (zeta - 2*lamb) / K
-        s0_integrand = zeta * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+        s0_integrand = zeta * phi(x).diff(x)**2
+        s1_integrand = -2*lamb * sp.exp( phi(x) * exp_factor ) * phi(x).diff(x)**2
+        integrand = (s0_integrand + s1_integrand) / exp_factor
 
         # The expression is numerically unstable as the activity coefficients cancel out,
         # so we switch to a Taylor series expansion there:
@@ -337,14 +316,14 @@ class ActiveBinodal(HermiteInterpolator):
     @cache
     def surface_tension_integrand_expression2(cls):
         phi = sp.Function('\phi')
-        r = symbols.r
+        x = symbols.x
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
         phi0 = sp.Symbol('\phi0')
 
         exp_factor = (zeta - 2*lamb) / K
-        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(x).diff(x)**2
+        s1_integrand = -2*lamb * sp.exp( phi(x) * exp_factor ) * phi(x).diff(x)**2
+        integrand = (s0_integrand + s1_integrand) / exp_factor
 
         # The expression is numerically unstable as the activity coefficients cancel out,
         # so we switch to a Taylor series expansion there:
@@ -360,7 +339,9 @@ class ActiveBinodal(HermiteInterpolator):
         integrand = self.surface_tension_integrand_expression
         integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
                                                          self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
+        # Child droplet class will need to substitute their radius in also.
+        try: integrand = integrand.subs(symbols.droplet_radius, self.R)
+        except: pass
         return integrand
 
     @property
@@ -368,20 +349,22 @@ class ActiveBinodal(HermiteInterpolator):
         integrand = self.surface_tension_integrand_expression2(self.phi0)
         integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
                                                          self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
+        # Child droplet class will need to substitute their radius in also.
+        try: integrand = integrand.subs(symbols.droplet_radius, self.R)
+        except: pass
         return integrand
 
     @property
-    def surface_tension_pseudopressure_drop(self):
+    def surface_tension(self):
         integrand = self.surface_tension_integrand
-        phi, r = sp.Function('\phi'), symbols.r
-        return self.integrate(integrand, phi, r)
+        phi, x = sp.Function('\phi'), symbols.x
+        return self.integrate(integrand, phi, x)
 
     @property
-    def surface_tension_pseudopressure_drop2(self):
+    def surface_tension2(self):
         integrand = self.surface_tension_integrand2
-        phi, r = sp.Function('\phi'), symbols.r
-        return self.integrate(integrand, phi, r)
+        phi, x = sp.Function('\phi'), symbols.x
+        return self.integrate(integrand, phi, x)
 
 class ActiveDroplet(ActiveBinodal):
     @classmethod
@@ -493,16 +476,17 @@ class ActiveDroplet(ActiveBinodal):
 
     @classmethod
     @property
+    @cache
     def surface_tension_integrand_expression(cls):
-    #def surface_tension_integrand_expression(cls):
         phi = sp.Function('\phi')
-        r = symbols.r
+        r = symbols.x
+        R = symbols.droplet_radius
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
 
         exp_factor = (zeta - 2*lamb) / K
-        s0_integrand = zeta * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+        s0_integrand = zeta * phi(r).diff(r)**2 * (R / r)
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 * (R / r)
+        integrand = (s0_integrand + s1_integrand) / exp_factor
 
         # The expression is numerically unstable as the activity coefficients cancel out,
         # so we switch to a Taylor series expansion there:
@@ -518,14 +502,15 @@ class ActiveDroplet(ActiveBinodal):
     @cache
     def surface_tension_integrand_expression2(cls):
         phi = sp.Function('\phi')
-        r = symbols.r
+        r = symbols.x
+        R = symbols.droplet_radius
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
         phi0 = sp.Symbol('\phi0')
 
         exp_factor = (zeta - 2*lamb) / K
-        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 / r
-        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 / r
-        integrand = (symbols.d - 1) * (s0_integrand + s1_integrand) / exp_factor
+        s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 * (R / r)
+        s1_integrand = -2*lamb * sp.exp( phi(r) * exp_factor ) * phi(r).diff(r)**2 * (R / r)
+        integrand = (s0_integrand + s1_integrand) / exp_factor
 
         # The expression is numerically unstable as the activity coefficients cancel out,
         # so we switch to a Taylor series expansion there:
@@ -537,32 +522,12 @@ class ActiveDroplet(ActiveBinodal):
         return sp.Lambda(phi0, integrand)
 
     @property
-    def surface_tension_integrand(self):
-        integrand = self.surface_tension_integrand_expression
-        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
-                                                         self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
-        return integrand
-
-    @property
-    def surface_tension_integrand2(self):
-        integrand = self.surface_tension_integrand_expression2(self.phi0)
-        integrand = integrand.subs({p: v for p, v in zip(self.pseudopotential.parameters,
-                                                         self.pseudopotential.parameter_values)})
-        integrand = integrand.subs(symbols.d, self.d)
-        return integrand
-
-    @property
     def surface_tension_pseudopressure_drop(self):
-        integrand = self.surface_tension_integrand
-        phi, r = sp.Function('\phi'), symbols.r
-        return self.integrate(integrand, phi, r)
+        return (self.d-1) * self.surface_tension / self.R
 
     @property
     def surface_tension_pseudopressure_drop2(self):
-        integrand = self.surface_tension_integrand2
-        phi, r = sp.Function('\phi'), symbols.r
-        return self.integrate(integrand, phi, r)
+        return (self.d-1) * self.surface_tension2 / self.R
 
 class ActiveModelBPlus:
     @classmethod
