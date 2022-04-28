@@ -237,7 +237,7 @@ class ActiveBinodal(HermiteInterpolator):
             for c in range(order):
                 new_weights[:,c] = self(new_x, c)
 
-            self.x = new_x
+            self.global_nodes = new_x
             self.weights = new_weights
             self.refine(refinement_tol, max_refinement_iters, nrefinement_iters+1, max_points, **kwargs)
 
