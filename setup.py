@@ -4,7 +4,7 @@ from setuptools import setup, Extension, find_packages
 import subprocess
 
 try: version = subprocess.check_output(["git", "describe", "--tags"]).decode('ascii').strip()
-except: version = '0.0.1'
+except: version = 'unknown-version'
 
 with open("README.md", "r") as f:
     long_description = f.read()
@@ -21,7 +21,7 @@ setup(
     license='GNU General Public License v3.0',
 
     author='Joshua F. Robinson',
-    author_email='joshua.robinson@protonmail.com',
+    author_email='joshuarrr@protonmail.com',
 
     url='https://github.com/tranqui/active-model-bplus',
     description='Active Model B+ field theory: simple calculations for droplets and bulk coexistence',
