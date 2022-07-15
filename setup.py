@@ -3,7 +3,11 @@
 from setuptools import setup, Extension, find_packages
 import subprocess
 
-try: version = subprocess.check_output(["git", "describe", "--tags"]).decode('ascii').strip()
+try:
+    version = subprocess.check_output(["git", "describe", "--tags"]).decode('ascii').strip()
+    if '-' in version:
+        version, ncommits, current_commit = version.split('-')
+        version = '%s.dev%s' % (version, ncommits)
 except: version = 'unknown-version'
 
 with open("README.md", "r") as f:
