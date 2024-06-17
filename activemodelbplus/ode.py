@@ -644,7 +644,7 @@ if __name__ == '__main__':
     plt.plot(xx, f(xx), '-', c=pl.get_color())
     try: plt.plot(xx, p.exact_solution(xx), '--')
     except: plt.plot(xx, [p.exact_solution(xx)]*len(xx), '--')
-    plt.title('$\phi^4$ kink')
+    plt.title(r'$\phi^4$ kink')
 
     plt.figure()
     plt.plot(xx, p.exact_solution(xx) - f(xx))

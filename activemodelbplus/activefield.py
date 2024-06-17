@@ -3,6 +3,7 @@
 import numpy as np, matplotlib.pyplot as plt
 import sympy as sp
 
+from .classproperty import classproperty
 from .interpolate import HermiteInterpolator
 from .ode import WeakFormProblem1d
 from .cache import cache, cached_property, disk_cache
@@ -18,15 +19,15 @@ class symbols:
     r = sp.Symbol('r')
     droplet_radius = sp.Symbol('R')
     domain_size = sp.Symbol('L')
-    interfacial_width = sp.Symbol(r'\xi')
+    interfacial_width = sp.Symbol('xi')
     # Aliases:
     R = droplet_radius
     L = domain_size
     xi = interfacial_width
 
     # State variables:
-    density = sp.Symbol('\phi')
-    pseudodensity = sp.Symbol('\psi')
+    density = sp.Symbol('phi')
+    pseudodensity = sp.Symbol('psi')
     pressure = sp.Symbol('p')
     pseudopressure = sp.Symbol('P')
     free_energy_density = sp.Symbol('f')
@@ -42,8 +43,8 @@ class symbols:
     K = square_grad_coefficient
 
     # Activity parameters in Active Model-B+:
-    zeta = sp.Symbol('\zeta')
-    lamb = sp.Symbol('\lambda')
+    zeta = sp.Symbol('zeta')
+    lamb = sp.Symbol('lambda')
 
 class Expression:
     arguments = []
@@ -58,20 +59,17 @@ class Expression:
         assert len(args) is len(self.parameters)
         self.parameter_values = args
 
-    @classmethod
-    @property
+    @classproperty
     def argument(cls):
         assert len(cls.arguments) == 1
         return cls.arguments[0]
 
-    @classmethod
-    @property
+    @classproperty
     def expression(cls):
         """Symbolic expression that must be defined in derived expressions."""
         raise NotImplementedError('should only be called from derived expression!')
 
-    @classmethod
-    @property
+    @classproperty
     def expr(cls):
         """Alias for expression."""
         return cls.expression
@@ -91,8 +89,7 @@ class Expression:
         expr = cls.expression.diff([args, n])
         return expr
 
-    @classmethod
-    @property
+    @classproperty
     def variables(cls):
         """Variables taken as arguments to expression in numerical evaluations (i.e. including
         parameters)."""
@@ -130,8 +127,7 @@ class PseudoCoefficient(Expression):
     arguments = []
     parameters = [symbols.zeta, symbols.lamb, symbols.K]
 
-    @classmethod
-    @property
+    @classproperty
     def expression(cls):
         return (symbols.zeta - 2*symbols.lamb) / symbols.K
 
@@ -139,8 +135,7 @@ class Pseudodensity(Expression):
     arguments = [symbols.density]
     parameters = [symbols.zeta, symbols.lamb, symbols.K]
 
-    @classmethod
-    @property
+    @classproperty
     def expression(cls):
         return (sp.exp(PseudoCoefficient.expr*symbols.density) - 1) / PseudoCoefficient.expr
 
@@ -159,8 +154,7 @@ class Density(Expression):
     arguments = [symbols.pseudodensity]
     parameters = [symbols.zeta, symbols.lamb, symbols.K]
 
-    @classmethod
-    @property
+    @classproperty
     def expression(cls):
         return sp.log(1 + PseudoCoefficient.expr*symbols.pseudodensity) / PseudoCoefficient.expr
 
@@ -179,8 +173,7 @@ class Pseudopotential(Expression):
     arguments = [symbols.density]
     parameters = [symbols.zeta, symbols.lamb, symbols.K]
 
-    @classmethod
-    @property
+    @classproperty
     def free_energy_density(cls):
         raise NotImplementedError
 
@@ -198,8 +191,7 @@ class Pseudopotential(Expression):
     def pseudodensity(self):
         return Pseudodensity(*self.pseudodensity_params)
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     @disk_cache
     def expression(cls):
@@ -242,8 +234,7 @@ class Phi4FreeEnergyDensity(Expression):
     arguments = [symbols.density]
     parameters = [symbols.t, symbols.u]
 
-    @classmethod
-    @property
+    @classproperty
     def expression(cls):
         return (symbols.t*symbols.density**2)/2 + (symbols.u*symbols.density**4)/4
 
@@ -251,8 +242,7 @@ class Phi4Pseudopotential(Pseudopotential):
     arguments = [symbols.density]
     parameters = [symbols.zeta, symbols.lamb, symbols.K, symbols.t, symbols.u]
 
-    @classmethod
-    @property
+    @classproperty
     def free_energy_density(cls):
         return Phi4FreeEnergyDensity
 
@@ -262,18 +252,15 @@ class ActiveModelBPlanarInterface(WeakFormProblem1d):
                   symbols.zeta, symbols.lamb,
                   symbols.K, symbols.t, symbols.u, symbols.d]
 
-    @classmethod
-    @property
+    @classproperty
     def analytic_solution(cls):
         raise RuntimeError('no known analytic solution to problem!')
 
-    @classmethod
-    @property
+    @classproperty
     def bulk_free_energy(cls):
         return Phi4FreeEnergyDensity.expression
 
-    @classmethod
-    @property
+    @classproperty
     def free_energy_terms(cls):
         x, d, K = cls.argument, symbols.d, symbols.K
         phi = cls.unknown_function(x)
@@ -285,44 +272,38 @@ class ActiveModelBPlanarInterface(WeakFormProblem1d):
         df -= K * phi.diff(x,2)
         return df
 
-    @classmethod
-    @property
+    @classproperty
     def mu_term(cls):
         x, d, K, zeta, lamb = cls.argument, symbols.d, symbols.K, symbols.zeta, symbols.lamb
         phi = cls.unknown_function(x)
         return cls.free_energy_terms + (lamb - zeta/2) * phi.diff(x)**2
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def strong_form(cls):
         """dmu/dr."""
         x = cls.argument
         return cls.mu_term.diff(x).simplify()
 
-    @classmethod
-    @property
+    @classproperty
     def test_function(cls):
         x = cls.argument
         return cls.b(x)
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def weak_form(cls):
         x = cls.argument
         expr = -cls.test_function.diff(x) * cls.mu_term
         return expr.simplify()
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def natural_boundary_condition(cls):
         expr = cls.mu_term * cls.test_function
         return expr.simplify()
 
-    @classmethod
-    @property
+    @classproperty
     def boundary_conditions(cls):
         x, phi = cls.argument, cls.unknown_function
 
@@ -337,18 +318,15 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
                   symbols.zeta, symbols.lamb,
                   symbols.K, symbols.t, symbols.u, symbols.d]
 
-    @classmethod
-    @property
+    @classproperty
     def analytic_solution(cls):
         raise RuntimeError('no known analytic solution to problem!')
 
-    @classmethod
-    @property
+    @classproperty
     def bulk_free_energy(cls):
         return Phi4FreeEnergyDensity.expression
 
-    @classmethod
-    @property
+    @classproperty
     def free_energy_terms(cls):
         r, d, K = cls.argument, symbols.d, symbols.K
         phi = cls.unknown_function(r)
@@ -360,22 +338,19 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
         df -= K * (phi.diff(r,2) + (d-1) * phi.diff(r) / r)
         return df
 
-    @classmethod
-    @property
+    @classproperty
     def local_term(cls):
         r, d, K, zeta, lamb = cls.argument, symbols.d, symbols.K, symbols.zeta, symbols.lamb
         phi = cls.unknown_function(r)
         return cls.free_energy_terms + (lamb - zeta/2) * phi.diff(r)**2
 
-    @classmethod
-    @property
+    @classproperty
     def nonlocal_term(cls):
         r, d, K, zeta, lamb = cls.argument, symbols.d, symbols.K, symbols.zeta, symbols.lamb
         phi = cls.unknown_function(r)
         return -zeta * (d-1) * phi.diff(r)**2 / r
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def strong_form(cls):
         """dmu/dr."""
@@ -383,14 +358,12 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
         expr = cls.local_term.diff(r) + cls.nonlocal_term
         return expr.simplify()
 
-    @classmethod
-    @property
+    @classproperty
     def test_function(cls):
         r = cls.argument
         return r**2 * cls.b(r)
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def weak_form(cls):
         r = cls.argument
@@ -398,8 +371,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
         #expr = (cls.local_term.diff(r) + cls.nonlocal_term) * cls.test_function
         return expr.simplify()
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def natural_boundary_condition(cls):
         expr = cls.local_term * cls.test_function
@@ -408,8 +380,7 @@ class ActiveModelBSphericalInterface(WeakFormProblem1d):
     # Left boundary is not a true boundary in polar coordinates.
     boundary_left = False
 
-    @classmethod
-    @property
+    @classproperty
     def boundary_conditions(cls):
         r, phi = cls.argument, cls.unknown_function
 

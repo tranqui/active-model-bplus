@@ -5,6 +5,7 @@ from scipy.optimize import newton_krylov
 from scipy.special import erf, erfinv
 import sympy as sp
 
+from .classproperty import classproperty
 from .interpolate import HermiteInterpolator
 from .activefield import symbols, Phi4Pseudopotential, ActiveModelBPlanarInterface, ActiveModelBSphericalInterface
 from .cache import cache, cached_property, disk_cache
@@ -21,23 +22,19 @@ class ProbabilityDistribution:
         assert len(args) is len(self.parameters)
         self.parameter_values = args
 
-    @classmethod
-    @property
+    @classproperty
     def argument(cls):
         return sp.Symbol('x')
 
-    @classmethod
-    @property
+    @classproperty
     def probability_density_function(cls):
         raise NotImplementedError
 
-    @classmethod
-    @property
+    @classproperty
     def cumulative_distribution_function(cls):
         raise NotImplementedError
 
-    @classmethod
-    @property
+    @classproperty
     def inverse_distribution_function(cls):
         raise NotImplementedError
 
@@ -61,20 +58,17 @@ class LogNormalDistribution(ProbabilityDistribution):
     mu, sigma = sp.symbols('mu sigma')
     parameters = [mu, sigma]
 
-    @classmethod
-    @property
+    @classproperty
     def probability_density_function(cls):
         x = cls.argument
         return sp.exp( (sp.log(x) - cls.mu)**2 / (2*cls.sigma**2) ) / (x*cls.sigma*sp.sqrt(2*sp.pi))
 
-    @classmethod
-    @property
+    @classproperty
     def cumulative_distribution_function(cls):
         x = cls.argument
         return 0.5 * (1 + sp.erf( (sp.log(x) - cls.mu) / (sp.sqrt(2)*cls.sigma) ) )
 
-    @classmethod
-    @property
+    @classproperty
     def inverse_distribution_function(cls):
         x = cls.argument
         return sp.exp(cls.mu + (sp.sqrt(2)*cls.sigma) * sp.erfinv(2*x - 1))
@@ -83,20 +77,17 @@ class SechDistribution(ProbabilityDistribution):
     mu, xi = sp.symbols('mu sigma')
     parameters = [mu, xi]
 
-    @classmethod
-    @property
+    @classproperty
     def probability_density_function(cls):
         x = cls.argument
         return sp.sech( (x - cls.mu) / cls.xi ) / (sp.pi * cls.xi / 2)
 
-    @classmethod
-    @property
+    @classproperty
     def cumulative_distribution_function(cls):
         x = cls.argument
         return ( 1 + 4*sp.atan( sp.tanh( (x - cls.mu) / (2*cls.xi) ) )/sp.pi ) / 2
 
-    @classmethod
-    @property
+    @classproperty
     def inverse_distribution_function(cls):
         x = cls.argument
         return cls.mu + 2*cls.xi * sp.atanh( sp.tan(sp.pi * (2*x - 1) / 4) )
@@ -105,30 +96,26 @@ class SechSquaredDistribution(ProbabilityDistribution):
     mu, xi = sp.symbols('mu sigma')
     parameters = [mu, xi]
 
-    @classmethod
-    @property
+    @classproperty
     def probability_density_function(cls):
         x = cls.argument
         tanh_const = sp.tanh(cls.mu / cls.xi)
         return sp.sech( (x - cls.mu) / cls.xi )**2 / (cls.xi * (1 + tanh_const))
 
-    @classmethod
-    @property
+    @classproperty
     def cumulative_distribution_function(cls):
         x = cls.argument
         tanh_const = sp.tanh(cls.mu / cls.xi)
         return (sp.tanh( (x - cls.mu) / cls.xi ) + tanh_const) / (1 + tanh_const)
 
-    @classmethod
-    @property
+    @classproperty
     def inverse_distribution_function(cls):
         x = cls.argument
         tanh_const = sp.tanh(cls.mu / cls.xi)
         return cls.mu + cls.xi * sp.atanh(x - tanh_const*(1 - x))
 
 class ActiveBinodal(HermiteInterpolator):
-    @classmethod
-    @property
+    @classproperty
     def guess_profile_distribution(cls):
         return SechDistribution
 
@@ -293,14 +280,13 @@ class ActiveBinodal(HermiteInterpolator):
     def mu1(self):
         return self.mu(self.x[-1])
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def surface_tension_integrand_expression(cls):
-        phi = sp.Function('\phi')
+        phi = sp.Function('phi')
         x = symbols.x
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
-        phi0 = sp.Symbol('\phi0')
+        phi0 = sp.Symbol('phi_0')
 
         exp_factor = (zeta - 2*lamb) / K
         s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(x).diff(x)**2
@@ -329,7 +315,7 @@ class ActiveBinodal(HermiteInterpolator):
     @property
     def surface_tension(self):
         integrand = self.surface_tension_integrand
-        phi, x = sp.Function('\phi'), symbols.x
+        phi, x = sp.Function('phi'), symbols.x
         return self.integrate(integrand, phi, x)
 
 class ActiveDroplet(ActiveBinodal):
@@ -403,10 +389,9 @@ class ActiveDroplet(ActiveBinodal):
     def domain_size(self):
         return self.x[-1]
 
-    @classmethod
-    @property
+    @classproperty
     def nonlocal_integrand_expression(cls):
-        phi = sp.Function('\phi')
+        phi = sp.Function('phi')
         r = symbols.r
         zeta, lamb, K, d = symbols.zeta, symbols.lamb, symbols.K, symbols.d
 
@@ -452,15 +437,14 @@ class ActiveDroplet(ActiveBinodal):
     def pseudopressure_drop(self):
         return self.pseudopressure0 - self.pseudopressure1
 
-    @classmethod
-    @property
+    @classproperty
     @cache
     def surface_tension_integrand_expression(cls):
-        phi = sp.Function('\phi')
+        phi = sp.Function('phi')
         r = symbols.x
         R = symbols.droplet_radius
         zeta, lamb, K = symbols.zeta, symbols.lamb, symbols.K
-        phi0 = sp.Symbol('\phi0')
+        phi0 = sp.Symbol('phi_0')
 
         exp_factor = (zeta - 2*lamb) / K
         s0_integrand = zeta * sp.exp( phi0 * exp_factor ) * phi(r).diff(r)**2 * (R / r)
