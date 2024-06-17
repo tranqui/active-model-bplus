@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 
 from setuptools import setup, Extension, find_packages
-import subprocess
 
-try:
-    version = subprocess.check_output(["git", "describe", "--tags"]).decode('ascii').strip()
-    if '-' in version:
-        version, ncommits, current_commit = version.split('-')
-        version = '%s.dev%s' % (version, ncommits)
-except: version = 'unknown-version'
+version = '0.0.1'
+
 
 with open("README.md", "r") as f:
     long_description = f.read()
