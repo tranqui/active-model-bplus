@@ -1,3 +1,5 @@
+*.pdf
+*.png
 *.o
 build/
 *.so
