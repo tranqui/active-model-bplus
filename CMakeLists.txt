@@ -4,9 +4,11 @@ project(activemodelbplus LANGUAGES CXX CUDA)
 # Find packages
 find_package(pybind11 REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS unit_test_framework)
 
 include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
+include_directories(${Boost_INCLUDE_DIRS})
 
 # Set compiler flags
 set(CMAKE_CXX_STANDARD 20)
@@ -52,3 +54,27 @@ foreach(SO_FILE ${STATIC_OBJECTS})
             ${CMAKE_CURRENT_SOURCE_DIR}/activemodelbplus/${SO_FILENAME}
     COMMENT "Copying ${SO_FILE} to module")
 endforeach()
+
+# Unit test executable
+add_executable(unit_tests test/unit_tests.cc)
+add_dependencies(unit_tests integrator)
+target_link_libraries(unit_tests PRIVATE Boost::unit_test_framework) #integrator-kernel)
+target_include_directories(unit_tests PRIVATE
+                           ${CMAKE_CURRENT_SOURCE_DIR}/src
+                           ${EIGEN3_INCLUDE_DIRS}
+                           ${Boost_INCLUDE_DIRS})
+set_target_properties(unit_tests PROPERTIES COMPILE_DEFINITIONS "BOOST_TEST_DYN_LINK")
+
+# Register unit tests
+enable_testing()
+add_test(NAME unit_tests COMMAND unit_tests)
+set_target_properties(unit_tests PROPERTIES COMPILE_DEFINITIONS "BOOST_TEST_DYN_LINK")
+
+# Run tests at end of build process
+add_custom_command(
+    TARGET unit_tests POST_BUILD
+    COMMAND ${CMAKE_CTEST_COMMAND} --verbose
+    DEPENDS unit_tests
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running tests"
+)
