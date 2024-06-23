@@ -1,7 +1,7 @@
-#define BOOST_TEST_MODULE UnitTests
-#include <boost/test/included/unit_test.hpp>
+#define CATCH_CONFIG_MAIN
+#include <catch2/catch.hpp>
 
-BOOST_AUTO_TEST_CASE(Test1)
+TEST_CASE("MyTestSuite/Test1", "Test1")
 {
-    BOOST_TEST(true);
+    REQUIRE(2 + 2 == 4);
 }
