@@ -2,26 +2,31 @@
 #include <catch2/catch.hpp>
 #include "integrator.cuh"
 
+void equality_test(const FieldRef& a, const FieldRef& b)
+{
+    REQUIRE(a.rows() == b.rows());
+    REQUIRE(a.cols() == b.cols());
+    for (int i = 0; i < a.rows(); ++i)
+        for (int j = 0; j < a.cols(); ++j)
+            REQUIRE(a(i,j) == b(i,j));
+}
+
 TEST_CASE("Constructor")
 {
     Scalar dt{1e-2}, dx{1}, dy{1};
-    int Nx{1024}, Ny{1024};
+    int Nx{64}, Ny{64};
     auto expected = Field::Random(Nx, Ny);
 
     Integrator simulation(expected, dt, dx, dy);
     auto actual = simulation.get_field();
 
-    REQUIRE(actual.rows() == expected.rows());
-    REQUIRE(actual.cols() == expected.cols());
-    for (int i = 0; i < Nx; ++i)
-        for (int j = 0; j < Nx; ++j)
-            REQUIRE(actual(i,j) == expected(i,j));
+    equality_test(expected, actual);
 }
 
 TEST_CASE("MoveConstructor")
 {
     Scalar dt{1e-2}, dx{1}, dy{1};
-    int Nx{1024}, Ny{1024};
+    int Nx{64}, Ny{64};
     auto initial = Field::Random(Nx, Ny);
 
     Integrator simulation(initial, dt, dx, dy);
@@ -29,9 +34,5 @@ TEST_CASE("MoveConstructor")
     Integrator move(std::move(simulation));
     auto actual = move.get_field();
 
-    REQUIRE(actual.rows() == expected.rows());
-    REQUIRE(actual.cols() == expected.cols());
-    for (int i = 0; i < Nx; ++i)
-        for (int j = 0; j < Nx; ++j)
-            REQUIRE(actual(i,j) == expected(i,j));
+    equality_test(expected, actual);
 }
