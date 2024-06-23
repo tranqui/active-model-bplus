@@ -10,3 +10,4 @@ build/
 dist/
 *log.lammps
 dump.log
+*.json
