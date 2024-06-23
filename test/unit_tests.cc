@@ -15,7 +15,7 @@ TEST_CASE("Constructor")
 {
     Scalar dt{1e-2}, dx{1}, dy{1};
     int Nx{64}, Ny{64};
-    auto expected = Field::Random(Nx, Ny);
+    Field expected = Field::Random(Nx, Ny);
 
     Integrator simulation(expected, dt, dx, dy);
     auto actual = simulation.get_field();
@@ -27,7 +27,7 @@ TEST_CASE("MoveConstructor")
 {
     Scalar dt{1e-2}, dx{1}, dy{1};
     int Nx{64}, Ny{64};
-    auto initial = Field::Random(Nx, Ny);
+    Field initial = Field::Random(Nx, Ny);
 
     Integrator simulation(initial, dt, dx, dy);
     auto expected = simulation.get_field();

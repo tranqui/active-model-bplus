@@ -40,5 +40,15 @@ public:
 
     Integrator(const HostField& field, Scalar dt, Scalar dx, Scalar dy);
 
+    ~Integrator();
+
     Field get_field() const;
+
+protected:
+    Scalar dt, dx, dy;
+    int nrows, ncols;
+    size_t pitch_width, mem_size;
+
+    size_t pitch;
+    DeviceField field;
 };
