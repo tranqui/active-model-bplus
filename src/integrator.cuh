@@ -16,3 +16,29 @@ namespace kernel
     // Check CUDA for errors after GPU execution and throw them.
     void throw_errors();
 }
+
+using Scalar = double;
+using Field = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+using FieldRef = Eigen::Ref<const Field>;
+
+
+/// Simulation controller
+
+
+class Integrator
+{
+public:
+    using HostField = FieldRef;
+    using DeviceField = Scalar*;
+
+    // Copy constructors are not safe because GPU device memory will not be copied.
+    Integrator(const Integrator&) = delete;
+    Integrator& operator=(const Integrator&) = delete;
+    // Move constructors are fine though.
+    Integrator& operator=(Integrator&&) noexcept = default;
+    Integrator(Integrator&&) noexcept;
+
+    Integrator(const HostField& field, Scalar dt, Scalar dx, Scalar dy);
+
+    Field get_field() const;
+};

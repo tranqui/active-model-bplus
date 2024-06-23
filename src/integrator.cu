@@ -25,3 +25,19 @@ namespace kernel
         }
     }
 }
+
+
+/// Host device definitions.
+
+Integrator::Integrator(const HostField& field, Scalar dt, Scalar dx, Scalar dy)
+{
+}
+
+Integrator::Integrator(Integrator&& other) noexcept
+{
+}
+
+Field Integrator::get_field() const
+{
+    return Field::Random(10, 10);
+}

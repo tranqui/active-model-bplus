@@ -59,7 +59,7 @@ endforeach()
 # Unit test executable
 add_executable(unit_tests test/unit_tests.cc)
 add_dependencies(unit_tests integrator)
-# target_link_libraries(unit_tests PRIVATE Boost::unit_test_framework) #integrator-kernel)
+target_link_libraries(unit_tests integrator-kernel)
 target_include_directories(unit_tests PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${EIGEN3_INCLUDE_DIRS}
