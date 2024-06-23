@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(activemodelbplus LANGUAGES CXX CUDA)
 
 # Find packages
+find_package(Python COMPONENTS Interpreter Development)
 find_package(pybind11 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Catch2 REQUIRED)
