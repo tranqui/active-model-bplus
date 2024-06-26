@@ -21,7 +21,7 @@ set(CMAKE_CXX_FLAGS "-Ofast")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr -diag-suppress 20012 --use_fast_math -ftz=true -prec-div=false -prec-sqrt=false")
 
 # CUDA kernel
-add_library(integrator-kernel SHARED src/integrator.cu src/integrator.cuh)
+add_library(integrator-kernel SHARED src/integrator.cu src/integrator.cuh src/foreach.cuh)
 target_include_directories(integrator-kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${EIGEN3_INCLUDE_DIRS})
 set_target_properties(integrator-kernel PROPERTIES
                       CUDA_SEPARABLE_COMPILATION ON
@@ -29,7 +29,8 @@ set_target_properties(integrator-kernel PROPERTIES
 )
 
 # Python bindings
-pybind11_add_module(integrator src/integrator.cc src/integrator.cuh)
+pybind11_add_module(integrator src/integrator.cc)
+add_dependencies(integrator integrator-kernel)
 target_link_libraries(integrator PUBLIC pybind11::headers Eigen3::Eigen PRIVATE integrator-kernel)
 target_include_directories(integrator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${EIGEN3_INCLUDE_DIRS})
 set_target_properties(integrator PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/activemodelbplus)

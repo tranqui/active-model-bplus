@@ -30,8 +30,8 @@ namespace kernel
 /// Host device definitions.
 
 Integrator::Integrator(const HostField& initial_field,
-                       Scalar dt, Scalar dx, Scalar dy)
-    : dt(dt), dx(dx), dy(dy),
+                       Stencil stencil, Model model)
+    : stencil(stencil), model(model),
     nrows(initial_field.rows()),
     ncols(initial_field.cols()),
     pitch_width(initial_field.cols() * sizeof(Scalar)),
@@ -45,7 +45,7 @@ Integrator::Integrator(const HostField& initial_field,
 }
 
 Integrator::Integrator(Integrator&& other) noexcept
-    : dt(other.dt), dx(other.dx), dy(other.dy),
+    : stencil(other.stencil), model(other.model),
       nrows(other.nrows), ncols(other.ncols),
       pitch_width(other.pitch_width), mem_size(other.mem_size),
       pitch(std::move(other.pitch)),
@@ -57,6 +57,16 @@ Integrator::Integrator(Integrator&& other) noexcept
 Integrator::~Integrator()
 {
     cudaFree(field);
+}
+
+Stencil Integrator::get_stencil() const
+{
+    return stencil;
+}
+
+Model Integrator::get_model() const
+{
+    return model;
 }
 
 Field Integrator::get_field() const

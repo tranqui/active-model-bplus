@@ -24,6 +24,41 @@ using FieldRef = Eigen::Ref<const Field>;
 
 /// Simulation controller
 
+struct StencilParams
+{
+    Scalar dt, dx, dy;
+
+    inline auto as_tuple()
+    {
+        return std::tie(dt, dx, dy);
+    }
+
+    inline auto as_tuple() const
+    {
+        return std::tie(dt, dx, dy);
+    }
+};
+
+struct ActiveModelBPlusParams
+{
+    Scalar a, b, c;
+    Scalar kappa;
+    Scalar lambda;
+    Scalar zeta;
+
+    inline auto as_tuple()
+    {
+        return std::tie(a, b, c, kappa, lambda, zeta);
+    }
+
+    inline auto as_tuple() const
+    {
+        return std::tie(a, b, c, kappa, lambda, zeta);
+    }
+};
+
+using Stencil = StencilParams;
+using Model = ActiveModelBPlusParams;
 
 class Integrator
 {
@@ -38,14 +73,17 @@ public:
     Integrator& operator=(Integrator&&) noexcept = default;
     Integrator(Integrator&&) noexcept;
 
-    Integrator(const HostField& field, Scalar dt, Scalar dx, Scalar dy);
+    Integrator(const HostField& field, Stencil stencil, Model model);
 
     ~Integrator();
 
+    Stencil get_stencil() const;
+    Model get_model() const;
     Field get_field() const;
 
 protected:
-    Scalar dt, dx, dy;
+    Stencil stencil;
+    Model model;
     int nrows, ncols;
     size_t pitch_width, mem_size;
 
