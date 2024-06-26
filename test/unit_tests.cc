@@ -123,12 +123,24 @@ TEST_CASE("BulkCurrent")
 
     // Find current $\vec{J} = - \nabla \mu$ by second-order finite difference:
     Current expected{Field(Ny, Nx), Field(Ny, Nx)};
-    for (int i = 1; i < Ny-1; ++i)
-        for (int j = 1; j < Nx-1; ++j)
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i+1}, im{i-1};
+        if (im < 0) im += Ny;
+        if (ip >= Ny) ip -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
         {
-            expected[0](i, j) = 0.5 * (mu(i+1, j  ) - mu(i-1, j  )) / stencil.dy;
-            expected[1](i, j) = 0.5 * (mu(i  , j+1) - mu(i  , j-1)) / stencil.dx;
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{j+1}, jm{j-1};
+            if (jm < 0) jm += Nx;
+            if (jp >= Nx) jp -= Nx;
+
+            expected[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
+            expected[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
         }
+    }
 
     Current actual = simulation.get_current();
     assert_equal(expected[0], actual[0]);
