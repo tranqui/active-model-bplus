@@ -80,14 +80,23 @@ TEST_CASE("MoveConstructor")
     int Nx{64}, Ny{64};
     Field initial = Field::Random(Ny, Nx);
 
-    Integrator simulation(initial, Stencil{}, Model{});
-    auto expected = simulation.get_field();
-    Integrator move(std::move(simulation));
-    auto actual = move.get_field();
+    {
+        auto simulation = std::make_unique<Integrator>(initial, Stencil{}, Model{});
+        auto expected = simulation->get_field();
+        auto stencil = simulation->get_stencil();
+        auto model = simulation->get_model();
 
-    assert_equal(expected, actual);
-    assert_equal(simulation.get_stencil(), simulation.get_stencil());
-    assert_equal(simulation.get_model(), move.get_model());
+        std::unique_ptr<Integrator> move = std::move(simulation);
+        auto actual = move->get_field();
+
+        assert_equal(expected, actual);
+        assert_equal(stencil, move->get_stencil());
+        assert_equal(model, move->get_model());
+    }
+
+    // Check destructor did not call twice (which would raise a CUDA error upon trying
+    // to release the same resource).
+    kernel::throw_errors();
 }
 
 inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
@@ -107,7 +116,7 @@ TEST_CASE("BulkCurrent")
     Integrator simulation(initial, stencil, model);
 
     // Bulk chemical potential is evaluated point-wise
-    Field mu = Field(Ny, Nx);
+    Field mu(Ny, Nx);
     for (int i = 0; i < Nx; ++i)
         for (int j = 0; j < Ny; ++j)
             mu(i, j) = bulk_chemical_potential(initial(i, j), model);

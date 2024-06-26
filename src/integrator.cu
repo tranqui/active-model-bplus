@@ -76,7 +76,30 @@ Field Integrator::get_field() const
     return out;
 }
 
+inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
+{
+    return model.a * field
+         + model.b * field * field
+         + model.c * field * field * field;
+}
+
 Current Integrator::get_current() const
 {
+    // Field field = get_field();
+
+    // Field mu = Field(nrows, ncols);
+    // for (int i = 0; i < ncols; ++i)
+    //     for (int j = 0; j < nrows; ++j)
+    //         mu(i, j) = bulk_chemical_potential(field(i, j), model);
+
+    // Current expected{Field(nrows, ncols), Field(nrows, ncols)};
+    // for (int i = 1; i < nrows-1; ++i)
+    //     for (int j = 1; j < ncols-1; ++j)
+    //     {
+    //         expected[0](i, j) = 0.5 * (mu(i+1, j  ) - mu(i-1, j  )) / stencil.dy;
+    //         expected[1](i, j) = 0.5 * (mu(i  , j+1) - mu(i  , j-1)) / stencil.dx;
+    //     }
+
+    // return expected;
     return Current{Field(nrows, ncols), Field(nrows, ncols)};
 }
