@@ -91,7 +91,7 @@ public:
     Stencil get_stencil() const;
     Model get_model() const;
     Field get_field() const;
-    Current get_current() const;
+    Current get_current();
 
 protected:
     Stencil stencil;
@@ -101,4 +101,10 @@ protected:
 
     size_t pitch;
     DeviceField field;
+    Current current;
+
+    int timestep = 0;
+    int timestep_calculated_current = -1;
+
+    void calculate_current();
 };

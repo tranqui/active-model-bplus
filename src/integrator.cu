@@ -83,8 +83,18 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
          + model.c * field * field * field;
 }
 
-Current Integrator::get_current() const
+Current Integrator::get_current()
 {
+    if (timestep > timestep_calculated_current)
+        calculate_current();
+
+    return current;
+}
+
+void Integrator::calculate_current()
+{
+    if (timestep_calculated_current == timestep) return;
+
     Field field = get_field();
 
     Field mu = Field(nrows, ncols);
@@ -92,7 +102,7 @@ Current Integrator::get_current() const
         for (int j = 0; j < nrows; ++j)
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
-    Current expected{Field(nrows, ncols), Field(nrows, ncols)};
+    current = Current{Field(nrows, ncols), Field(nrows, ncols)};
     for (int i = 0; i < nrows; ++i)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
@@ -107,10 +117,10 @@ Current Integrator::get_current() const
             if (jm < 0) jm += ncols;
             if (jp >= ncols) jp -= ncols;
 
-            expected[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
-            expected[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
+            current[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
+            current[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
         }
     }
 
-    return expected;
+    timestep_calculated_current = timestep;
 }
