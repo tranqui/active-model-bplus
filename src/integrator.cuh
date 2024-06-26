@@ -1,6 +1,8 @@
 #pragma once
 #include <Eigen/Eigen>
 
+static constexpr int d = 2; // dimensionality
+
 
 namespace kernel
 {
@@ -17,12 +19,17 @@ namespace kernel
     void throw_errors();
 }
 
+
+/// Data types for system state.
+
 using Scalar = double;
 using Field = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 using FieldRef = Eigen::Ref<const Field>;
+using Current = std::array<Field, d>;
 
 
-/// Simulation controller
+/// Simulation parameters.
+
 
 struct StencilParams
 {
@@ -60,6 +67,10 @@ struct ActiveModelBPlusParams
 using Stencil = StencilParams;
 using Model = ActiveModelBPlusParams;
 
+
+/// Simulation controller
+
+
 class Integrator
 {
 public:
@@ -80,6 +91,7 @@ public:
     Stencil get_stencil() const;
     Model get_model() const;
     Field get_field() const;
+    Current get_current() const;
 
 protected:
     Stencil stencil;

@@ -75,3 +75,8 @@ Field Integrator::get_field() const
     cudaMemcpy(out.data(), field, mem_size, cudaMemcpyDeviceToHost);
     return out;
 }
+
+Current Integrator::get_current() const
+{
+    return Current{Field(nrows, ncols), Field(nrows, ncols)};
+}

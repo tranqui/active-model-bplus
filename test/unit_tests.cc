@@ -64,7 +64,7 @@ void assert_equal(const Params& a, const Params& b)
 TEST_CASE("Constructor")
 {
     int Nx{64}, Ny{64};
-    Field initial = Field::Random(Nx, Ny);
+    Field initial = Field::Random(Ny, Nx);
     Stencil stencil{};
     Model model{};
 
@@ -78,7 +78,7 @@ TEST_CASE("Constructor")
 TEST_CASE("MoveConstructor")
 {
     int Nx{64}, Ny{64};
-    Field initial = Field::Random(Nx, Ny);
+    Field initial = Field::Random(Ny, Nx);
 
     Integrator simulation(initial, Stencil{}, Model{});
     auto expected = simulation.get_field();
@@ -88,4 +88,40 @@ TEST_CASE("MoveConstructor")
     assert_equal(expected, actual);
     assert_equal(simulation.get_stencil(), simulation.get_stencil());
     assert_equal(simulation.get_model(), move.get_model());
+}
+
+inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
+{
+    return model.a * field
+         + model.b * field * field
+         + model.c * field * field * field;
+}
+
+TEST_CASE("BulkCurrent")
+{
+    int Nx{64}, Ny{64};
+    Field initial = Field::Random(Ny, Nx);
+    Stencil stencil{1e-2, 1, 1};
+    Model model{1, 2, 3, 0, 0, 0};
+
+    Integrator simulation(initial, stencil, model);
+
+    // Bulk chemical potential is evaluated point-wise
+    Field mu = Field(Ny, Nx);
+    for (int i = 0; i < Nx; ++i)
+        for (int j = 0; j < Ny; ++j)
+            mu(i, j) = bulk_chemical_potential(initial(i, j), model);
+
+    // Find current $\vec{J} = - \nabla \mu$ by second-order finite difference:
+    Current expected{Field(Ny, Nx), Field(Ny, Nx)};
+    for (int i = 1; i < Ny-1; ++i)
+        for (int j = 1; j < Nx-1; ++j)
+        {
+            expected[0](i, j) = 0.5 * (mu(i+1, j  ) - mu(i-1, j  )) / stencil.dy;
+            expected[1](i, j) = 0.5 * (mu(i  , j+1) - mu(i  , j-1)) / stencil.dx;
+        }
+
+    Current actual = simulation.get_current();
+    assert_equal(expected[0], actual[0]);
+    assert_equal(expected[1], actual[1]);
 }
