@@ -85,21 +85,32 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
 
 Current Integrator::get_current() const
 {
-    // Field field = get_field();
+    Field field = get_field();
 
-    // Field mu = Field(nrows, ncols);
-    // for (int i = 0; i < ncols; ++i)
-    //     for (int j = 0; j < nrows; ++j)
-    //         mu(i, j) = bulk_chemical_potential(field(i, j), model);
+    Field mu = Field(nrows, ncols);
+    for (int i = 0; i < ncols; ++i)
+        for (int j = 0; j < nrows; ++j)
+            mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
-    // Current expected{Field(nrows, ncols), Field(nrows, ncols)};
-    // for (int i = 1; i < nrows-1; ++i)
-    //     for (int j = 1; j < ncols-1; ++j)
-    //     {
-    //         expected[0](i, j) = 0.5 * (mu(i+1, j  ) - mu(i-1, j  )) / stencil.dy;
-    //         expected[1](i, j) = 0.5 * (mu(i  , j+1) - mu(i  , j-1)) / stencil.dx;
-    //     }
+    Current expected{Field(nrows, ncols), Field(nrows, ncols)};
+    for (int i = 0; i < nrows; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i+1}, im{i-1};
+        if (im < 0) im += nrows;
+        if (ip >= nrows) ip -= nrows;
 
-    // return expected;
-    return Current{Field(nrows, ncols), Field(nrows, ncols)};
+        for (int j = 0; j < ncols; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{j+1}, jm{j-1};
+            if (jm < 0) jm += ncols;
+            if (jp >= ncols) jp -= ncols;
+
+            expected[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
+            expected[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
+        }
+    }
+
+    return expected;
 }

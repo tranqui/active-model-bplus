@@ -4,6 +4,10 @@
 #include "foreach.cuh"
 
 
+// Numerical tolerance for equality with numerical calculations.
+static constexpr Scalar equality_tol = 1e-12;
+
+
 /// Type-traits to facilitate how tests are performed for different data.
 
 template <typename T>
@@ -35,7 +39,7 @@ void assert_equal(T1&& a, T2&& b)
     REQUIRE(a.cols() == b.cols());
     for (int i = 0; i < a.rows(); ++i)
         for (int j = 0; j < a.cols(); ++j)
-            REQUIRE(a(i,j) == b(i,j));
+            REQUIRE(std::abs(a(i,j) - b(i,j)) < equality_tol);
 }
 
 // Element-wise test in tuples.
