@@ -1,4 +1,5 @@
 #include "integrator.cuh"
+#include "foreach.cuh"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -29,7 +30,7 @@ namespace kernel
 
 /// Host device definitions.
 
-Integrator::Integrator(const HostField& initial_field,
+Integrator::Integrator(const HostFieldRef& initial_field,
                        Stencil stencil, Model model)
     : stencil(stencil), model(model),
     nrows(initial_field.rows()),
@@ -38,9 +39,11 @@ Integrator::Integrator(const HostField& initial_field,
     mem_size(initial_field.rows() * initial_field.cols() * sizeof(Scalar))
 {
     // Initialise device memory.
-    cudaMallocPitch(&field, &pitch, pitch_width, nrows);
+    cudaMallocPitch(&field, &field_pitch, pitch_width, nrows);
     cudaMemcpy(field, initial_field.data(), mem_size, cudaMemcpyHostToDevice);
- 
+    for (int c = 0; c < d; ++c)
+        cudaMallocPitch(&current[c], &current_pitch[c], pitch_width, nrows);
+
     kernel::throw_errors();
 }
 
@@ -48,8 +51,9 @@ Integrator::Integrator(Integrator&& other) noexcept
     : stencil(other.stencil), model(other.model),
       nrows(other.nrows), ncols(other.ncols),
       pitch_width(other.pitch_width), mem_size(other.mem_size),
-      pitch(std::move(other.pitch)),
-      field(std::move(other.field))
+      field_pitch(std::move(other.field_pitch)), field(std::move(other.field)),
+      current_pitch(std::move(other.current_pitch)), current(std::move(other.current)),
+      timestep(other.timestep), timestep_calculated_current(other.timestep_calculated_current)
 {
     kernel::throw_errors();
 }
@@ -69,9 +73,9 @@ Model Integrator::get_model() const
     return model;
 }
 
-Field Integrator::get_field() const
+Integrator::HostField Integrator::get_field() const
 {
-    Field out(nrows, ncols);
+    HostField out(nrows, ncols);
     cudaMemcpy(out.data(), field, mem_size, cudaMemcpyDeviceToHost);
     return out;
 }
@@ -83,12 +87,15 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
          + model.c * field * field * field;
 }
 
-Current Integrator::get_current()
+Integrator::HostCurrent Integrator::get_current()
 {
     if (timestep > timestep_calculated_current)
         calculate_current();
 
-    return current;
+    HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
+    for (int c = 0; c < d; ++c)
+        cudaMemcpy(out[c].data(), current[c], mem_size, cudaMemcpyDeviceToHost);
+    return out;
 }
 
 void Integrator::calculate_current()
@@ -102,7 +109,7 @@ void Integrator::calculate_current()
         for (int j = 0; j < nrows; ++j)
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
-    current = Current{Field(nrows, ncols), Field(nrows, ncols)};
+    Current host_current{Field(nrows, ncols), Field(nrows, ncols)};
     for (int i = 0; i < nrows; ++i)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
@@ -117,10 +124,13 @@ void Integrator::calculate_current()
             if (jm < 0) jm += ncols;
             if (jp >= ncols) jp -= ncols;
 
-            current[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
-            current[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
+            host_current[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
+            host_current[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
         }
     }
+
+    for (int c = 0; c < d; ++c)
+        cudaMemcpy(current[c], host_current[c].data(), mem_size, cudaMemcpyHostToDevice);
 
     timestep_calculated_current = timestep;
 }

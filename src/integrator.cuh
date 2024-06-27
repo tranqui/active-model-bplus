@@ -74,8 +74,11 @@ using Model = ActiveModelBPlusParams;
 class Integrator
 {
 public:
-    using HostField = FieldRef;
+    using HostField = Field;
+    using HostFieldRef = FieldRef;
     using DeviceField = Scalar*;
+    using HostCurrent = Current;
+    using DeviceCurrent = std::array<Scalar*, d>;
 
     // Copy constructors are not safe because GPU device memory will not be copied.
     Integrator(const Integrator&) = delete;
@@ -84,14 +87,14 @@ public:
     Integrator& operator=(Integrator&&) noexcept = default;
     Integrator(Integrator&&) noexcept;
 
-    Integrator(const HostField& field, Stencil stencil, Model model);
+    Integrator(const HostFieldRef& field, Stencil stencil, Model model);
 
     ~Integrator();
 
     Stencil get_stencil() const;
     Model get_model() const;
-    Field get_field() const;
-    Current get_current();
+    HostField get_field() const;
+    HostCurrent get_current();
 
 protected:
     Stencil stencil;
@@ -99,9 +102,10 @@ protected:
     int nrows, ncols;
     size_t pitch_width, mem_size;
 
-    size_t pitch;
+    size_t field_pitch;
     DeviceField field;
-    Current current;
+    std::array<size_t, d> current_pitch;
+    DeviceCurrent current;
 
     int timestep = 0;
     int timestep_calculated_current = -1;
