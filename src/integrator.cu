@@ -62,6 +62,13 @@ namespace kernel
               - 2*(stencil.dxInv*stencil.dxInv + stencil.dyInv*stencil.dyInv) * tile[i][j];
     }
 
+    template <typename T>
+    __device__ inline Scalar grad_squ(T&& tile, int i, int j)
+    {
+        return 0.25 * (stencil.dyInv*stencil.dyInv * (tile[i+1][j] - tile[i-1][j]) * (tile[i+1][j] - tile[i-1][j])
+                     + stencil.dxInv*stencil.dxInv * (tile[i][j+1] - tile[i][j-1]) * (tile[i][j+1] - tile[i][j-1]));
+    }
+
 
     /// Kernel to determine current.
 
@@ -121,6 +128,7 @@ namespace kernel
         // Surface terms involve derivatives of the field.
 
         mu[i][j] -= model.kappa * laplacian(tile, i, j);
+        mu[i][j] += model.lambda * grad_squ(tile, i, j);
 
         const int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
 
@@ -128,12 +136,18 @@ namespace kernel
         {
             mu[i - num_ghost][j] -= model.kappa * laplacian(tile, i - num_ghost, j);
             mu[i + row_shift][j] -= model.kappa * laplacian(tile, i + row_shift, j);
+
+            mu[i - num_ghost][j] += model.lambda * grad_squ(tile, i - num_ghost, j);
+            mu[i + row_shift][j] += model.lambda * grad_squ(tile, i + row_shift, j);
         }
 
         if (threadIdx.x < num_ghost and threadIdx.x >= 1)
         {
             mu[i][j - num_ghost] -= model.kappa * laplacian(tile, i, j - num_ghost);
             mu[i][j + col_shift] -= model.kappa * laplacian(tile, i, j + col_shift);
+
+            mu[i][j - num_ghost] += model.lambda * grad_squ(tile, i, j - num_ghost);
+            mu[i][j + col_shift] += model.lambda * grad_squ(tile, i, j + col_shift);
         }
 
         if (threadIdx.y < num_ghost and threadIdx.y >= 1 and threadIdx.x < num_ghost and threadIdx.x >= 1)
@@ -142,6 +156,11 @@ namespace kernel
             mu[i - num_ghost][j + col_shift] -= model.kappa * laplacian(tile, i - num_ghost, j + col_shift);
             mu[i + row_shift][j - num_ghost] -= model.kappa * laplacian(tile, i + row_shift, j - num_ghost);
             mu[i + row_shift][j + col_shift] -= model.kappa * laplacian(tile, i + row_shift, j + col_shift);
+
+            mu[i - num_ghost][j - num_ghost] += model.lambda * grad_squ(tile, i - num_ghost, j - num_ghost);
+            mu[i - num_ghost][j + col_shift] += model.lambda * grad_squ(tile, i - num_ghost, j + col_shift);
+            mu[i + row_shift][j - num_ghost] += model.lambda * grad_squ(tile, i + row_shift, j - num_ghost);
+            mu[i + row_shift][j + col_shift] += model.lambda * grad_squ(tile, i + row_shift, j + col_shift);
         }
 
         __syncthreads();
