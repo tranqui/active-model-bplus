@@ -33,14 +33,16 @@ namespace kernel
     // 16x16 was close to optimum on my machine for simulations on a 1024x1024 grid.
     static constexpr int tile_rows = 16;
     static constexpr int tile_cols = 16;
-    // We need ghost points for each tile so we can evaluate derivatives
-    // (specifically the Laplacian for diffusion) at the tile borders.
-    static constexpr int num_ghost = 1; // <- minimum for second-order finite-difference stencil.
+    // We need ghost points for each tile so we can evaluate derivatives at tile borders.
+    static constexpr int num_ghost = 2; // <- minimum for second-order finite-difference stencil up to fourth-order derivatives.
 
     // Stencil parameters - 2d space (x, y), and time t.
     __constant__ DeviceStencilParams stencil;
     __constant__ int nrows, ncols;        // number of points in spatial grid
     __constant__ Model model;
+
+
+    /// Physical calculations
 
     __device__ inline Scalar bulk_chemical_potential(Scalar field)
     {
@@ -51,6 +53,15 @@ namespace kernel
     {
         return model.a + 2 * model.b * field + 3 * model.c * field * field;
     }
+
+    template <typename T>
+    __device__ inline Scalar laplacian(T&& tile, int i, int j)
+    {
+        return  stencil.dyInv*stencil.dyInv * (tile[i+1][j] + tile[i-1][j])
+              + stencil.dxInv*stencil.dxInv * (tile[i][j+1] + tile[i][j-1])
+              - 2*(stencil.dxInv*stencil.dxInv + stencil.dyInv*stencil.dyInv) * tile[i][j];
+    }
+
 
     /// Kernel to determine current.
 
@@ -68,7 +79,9 @@ namespace kernel
         // Load tile into shared memory.
 
         __shared__ Scalar tile[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
+        __shared__ Scalar mu[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
         tile[i][j] = field[index];
+        mu[i][j] = bulk_chemical_potential(tile[i][j]);
 
         // Fill in ghost points.
 
@@ -76,12 +89,18 @@ namespace kernel
         {
             tile[i - num_ghost][j] = field[col + ((row - num_ghost + nrows) % nrows) * ncols];
             tile[i + tile_rows][j] = field[col + ((row + tile_rows) % nrows) * ncols];
+
+            mu[i - num_ghost][j] = bulk_chemical_potential(tile[i - num_ghost][j]);
+            mu[i + tile_rows][j] = bulk_chemical_potential(tile[i + tile_rows][j]);
         }
 
         if (threadIdx.x < num_ghost)
         {
             tile[i][j - num_ghost] = field[(col - num_ghost + ncols) % ncols + row * ncols];
             tile[i][j + tile_cols] = field[(col + tile_cols) % ncols         + row * ncols];
+
+            mu[i][j - num_ghost] = bulk_chemical_potential(tile[i][j - num_ghost]);
+            mu[i][j + tile_cols] = bulk_chemical_potential(tile[i][j + tile_cols]);
         }
 
         if (threadIdx.x < num_ghost and threadIdx.y < num_ghost)
@@ -90,29 +109,45 @@ namespace kernel
             tile[i - num_ghost][j + tile_cols] = field[(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
             tile[i + tile_rows][j - num_ghost] = field[(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
             tile[i + tile_rows][j + tile_cols] = field[(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
+
+            mu[i - num_ghost][j - num_ghost] = bulk_chemical_potential(tile[i - num_ghost][j - num_ghost]);
+            mu[i - num_ghost][j + tile_cols] = bulk_chemical_potential(tile[i - num_ghost][j + tile_cols]);
+            mu[i + tile_rows][j - num_ghost] = bulk_chemical_potential(tile[i + tile_rows][j - num_ghost]);
+            mu[i + tile_rows][j + tile_cols] = bulk_chemical_potential(tile[i + tile_rows][j + tile_cols]);
         }
 
         __syncthreads();
 
-        // Scalar grad_field[d];
-        // grad_field[0] = 0.5 * (tile[i+1][j  ] - tile[i-1][j  ]) * stencil.dyInv;
-        // grad_field[1] = 0.5 * (tile[i  ][j+1] - tile[i  ][j-1]) * stencil.dxInv;
+        // Surface terms involve derivatives of the field.
 
-        // Scalar dmu = deriv_bulk_chemical_potential(tile[i][j]);
-        // for (int c = 0; c < d; ++c)
-        // {
-        //     current[c][index] = dmu * grad_field[c];
-        // }
+        mu[i][j] -= model.kappa * laplacian(tile, i, j);
 
-        Scalar mu1, mu2;
+        const int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
 
-        mu2 = bulk_chemical_potential(tile[i+1][j]);
-        mu1 = bulk_chemical_potential(tile[i-1][j]);
-        current[0][index] = -0.5 * (mu2 - mu1) * stencil.dyInv;
+        if (threadIdx.y < num_ghost and threadIdx.y >= 1)
+        {
+            mu[i - num_ghost][j] -= model.kappa * laplacian(tile, i - num_ghost, j);
+            mu[i + row_shift][j] -= model.kappa * laplacian(tile, i + row_shift, j);
+        }
 
-        mu2 = bulk_chemical_potential(tile[i][j+1]);
-        mu1 = bulk_chemical_potential(tile[i][j-1]);
-        current[1][index] = -0.5 * (mu2 - mu1) * stencil.dxInv;
+        if (threadIdx.x < num_ghost and threadIdx.x >= 1)
+        {
+            mu[i][j - num_ghost] -= model.kappa * laplacian(tile, i, j - num_ghost);
+            mu[i][j + col_shift] -= model.kappa * laplacian(tile, i, j + col_shift);
+        }
+
+        if (threadIdx.y < num_ghost and threadIdx.y >= 1 and threadIdx.x < num_ghost and threadIdx.x >= 1)
+        {
+            mu[i - num_ghost][j - num_ghost] -= model.kappa * laplacian(tile, i - num_ghost, j - num_ghost);
+            mu[i - num_ghost][j + col_shift] -= model.kappa * laplacian(tile, i - num_ghost, j + col_shift);
+            mu[i + row_shift][j - num_ghost] -= model.kappa * laplacian(tile, i + row_shift, j - num_ghost);
+            mu[i + row_shift][j + col_shift] -= model.kappa * laplacian(tile, i + row_shift, j + col_shift);
+        }
+
+        __syncthreads();
+
+        current[0][index] = -0.5 * (mu[i+1][j] - mu[i-1][j]) * stencil.dyInv;
+        current[1][index] = -0.5 * (mu[i][j+1] - mu[i][j-1]) * stencil.dxInv;
     }
 }
 
