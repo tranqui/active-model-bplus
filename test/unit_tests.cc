@@ -75,7 +75,7 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
 // Find gradient of field by second-order finite difference:
 inline Gradient gradient(Field field, Stencil stencil)
 {
-    const int Ny{field.rows()}, Nx{field.cols()};
+    const auto Ny{field.rows()}, Nx{field.cols()};
     Gradient grad{Field(Ny, Nx), Field(Ny, Nx)};
 
     for (int i = 0; i < Ny; ++i)
@@ -100,6 +100,35 @@ inline Gradient gradient(Field field, Stencil stencil)
     return grad;
 }
 
+// Find laplacian of field by second-order finite difference:
+inline Field laplacian(const FieldRef& field, Stencil stencil)
+{
+    const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
+    const auto Ny{field.rows()}, Nx{field.cols()};
+    Field lap{Ny, Nx};
+
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i+1}, im{i-1};
+        if (im < 0) im += Ny;
+        if (ip >= Ny) ip -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{j+1}, jm{j-1};
+            if (jm < 0) jm += Nx;
+            if (jp >= Nx) jp -= Nx;
+
+            lap(i, j) =   dyInv*dyInv * (field(ip,j) + field(im,j))
+                        + dxInv*dxInv * (field(i,jp) + field(i,jm))
+                        - 2*(dxInv*dxInv + dyInv*dyInv) * field(i,j);
+        }
+    }
+
+    return lap;
+}
 
 /// The unit tests.
 
@@ -159,6 +188,26 @@ TEST_CASE("BulkCurrent")
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
     // Current $\vec{J} = - \nabla \mu$:
+    Current expected = gradient(mu, stencil);
+    for (int c = 0; c < d; ++c) expected[c] *= -1;
+
+    Current actual = simulation.get_current();
+    assert_equal(expected[0], actual[0]);
+    assert_equal(expected[1], actual[1]);
+}
+
+TEST_CASE("KappaCurrent")
+{
+    int Nx{64}, Ny{32};
+    Field initial = Field::Random(Ny, Nx);
+    Stencil stencil{1e-2, 1, 0.75};
+    Model model{0, 0, 0, 1, 0, 0};
+
+    Integrator simulation(initial, stencil, model);
+    Field field = simulation.get_field();
+
+    // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
+    Field mu = -model.kappa * laplacian(field, stencil);
     Current expected = gradient(mu, stencil);
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
