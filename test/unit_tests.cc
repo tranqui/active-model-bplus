@@ -67,7 +67,7 @@ void assert_equal(const Params& a, const Params& b)
 
 TEST_CASE("Constructor")
 {
-    int Nx{64}, Ny{64};
+    int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
     Stencil stencil{};
     Model model{};
@@ -81,7 +81,7 @@ TEST_CASE("Constructor")
 
 TEST_CASE("MoveConstructor")
 {
-    int Nx{64}, Ny{64};
+    int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
 
     {
@@ -112,17 +112,17 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
 
 TEST_CASE("BulkCurrent")
 {
-    int Nx{64}, Ny{64};
+    int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 1};
+    Stencil stencil{1e-2, 1, 0.75};
     Model model{1, 2, 3, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
 
     // Bulk chemical potential is evaluated point-wise
     Field mu(Ny, Nx);
-    for (int i = 0; i < Nx; ++i)
-        for (int j = 0; j < Ny; ++j)
+    for (int i = 0; i < Ny; ++i)
+        for (int j = 0; j < Nx; ++j)
             mu(i, j) = bulk_chemical_potential(initial(i, j), model);
 
     // Find current $\vec{J} = - \nabla \mu$ by second-order finite difference:
