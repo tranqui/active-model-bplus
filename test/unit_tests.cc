@@ -150,12 +150,13 @@ TEST_CASE("BulkCurrent")
     Model model{1, 2, 3, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
+    Field field = simulation.get_field();
 
     // Bulk chemical potential is evaluated point-wise
     Field mu(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
-            mu(i, j) = bulk_chemical_potential(initial(i, j), model);
+            mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
     // Current $\vec{J} = - \nabla \mu$:
     Current expected = gradient(mu, stencil);
