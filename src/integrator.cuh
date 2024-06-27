@@ -27,11 +27,17 @@ using Field = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMa
 using FieldRef = Eigen::Ref<const Field>;
 using Current = std::array<Field, d>;
 
+using HostField = Field;
+using HostFieldRef = FieldRef;
+using DeviceField = Scalar*;
+using HostCurrent = Current;
+using DeviceCurrent = std::array<Scalar*, d>;
+
 
 /// Simulation parameters.
 
 
-struct StencilParams
+struct HostStencilParams
 {
     Scalar dt, dx, dy;
 
@@ -44,6 +50,15 @@ struct StencilParams
     {
         return std::tie(dt, dx, dy);
     }
+};
+
+struct DeviceStencilParams
+{
+    Scalar dt, dxInv, dyInv;
+
+    DeviceStencilParams() noexcept = default;
+    inline DeviceStencilParams(const HostStencilParams& host)
+      : dt(host.dt), dxInv(1/host.dx), dyInv(1/host.dy) { }
 };
 
 struct ActiveModelBPlusParams
@@ -64,7 +79,7 @@ struct ActiveModelBPlusParams
     }
 };
 
-using Stencil = StencilParams;
+using Stencil = HostStencilParams;
 using Model = ActiveModelBPlusParams;
 
 
@@ -74,12 +89,6 @@ using Model = ActiveModelBPlusParams;
 class Integrator
 {
 public:
-    using HostField = Field;
-    using HostFieldRef = FieldRef;
-    using DeviceField = Scalar*;
-    using HostCurrent = Current;
-    using DeviceCurrent = std::array<Scalar*, d>;
-
     // Copy constructors are not safe because GPU device memory will not be copied.
     Integrator(const Integrator&) = delete;
     Integrator& operator=(const Integrator&) = delete;
@@ -110,5 +119,6 @@ protected:
     int timestep = 0;
     int timestep_calculated_current = -1;
 
+    void set_device_parameters();
     void calculate_current();
 };
