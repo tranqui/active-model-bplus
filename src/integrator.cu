@@ -61,6 +61,7 @@ Integrator::Integrator(Integrator&& other) noexcept
 Integrator::~Integrator()
 {
     cudaFree(field);
+    for (int c = 0; c < d; ++c) cudaFree(current[c]);
 }
 
 Stencil Integrator::get_stencil() const
