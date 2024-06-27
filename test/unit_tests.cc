@@ -130,6 +130,7 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
     return lap;
 }
 
+
 /// The unit tests.
 
 
@@ -196,7 +197,7 @@ TEST_CASE("BulkCurrent")
     assert_equal(expected[1], actual[1]);
 }
 
-TEST_CASE("KappaCurrent")
+TEST_CASE("PassiveSurfaceCurrent")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
