@@ -104,16 +104,15 @@ namespace kernel
         //     current[c][index] = dmu * grad_field[c];
         // }
 
-        Scalar grad_field[d];
         Scalar mu1, mu2;
 
         mu2 = bulk_chemical_potential(tile[i+1][j]);
         mu1 = bulk_chemical_potential(tile[i-1][j]);
-        current[0][index] = 0.5 * (mu2 - mu1) * stencil.dyInv;
+        current[0][index] = -0.5 * (mu2 - mu1) * stencil.dyInv;
 
         mu2 = bulk_chemical_potential(tile[i][j+1]);
         mu1 = bulk_chemical_potential(tile[i][j-1]);
-        current[1][index] = 0.5 * (mu2 - mu1) * stencil.dxInv;
+        current[1][index] = -0.5 * (mu2 - mu1) * stencil.dxInv;
     }
 }
 

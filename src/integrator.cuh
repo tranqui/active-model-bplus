@@ -25,13 +25,18 @@ namespace kernel
 using Scalar = double;
 using Field = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 using FieldRef = Eigen::Ref<const Field>;
-using Current = std::array<Field, d>;
 
 using HostField = Field;
 using HostFieldRef = FieldRef;
 using DeviceField = Scalar*;
-using HostCurrent = Current;
-using DeviceCurrent = std::array<Scalar*, d>;
+
+using Gradient = std::array<Field, d>;
+using HostGradient = Gradient;
+using DeviceGradient = std::array<Scalar*, d>;
+
+using Current = Gradient;
+using HostCurrent = HostGradient;
+using DeviceCurrent = DeviceGradient;
 
 
 /// Simulation parameters.

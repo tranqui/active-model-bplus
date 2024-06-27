@@ -62,6 +62,45 @@ void assert_equal(const Params& a, const Params& b)
 }
 
 
+/// Expected physical values.
+
+
+inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
+{
+    return model.a * field
+         + model.b * field * field
+         + model.c * field * field * field;
+}
+
+// Find gradient of field by second-order finite difference:
+inline Gradient gradient(Field field, Stencil stencil)
+{
+    const int Ny{field.rows()}, Nx{field.cols()};
+    Gradient grad{Field(Ny, Nx), Field(Ny, Nx)};
+
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i+1}, im{i-1};
+        if (im < 0) im += Ny;
+        if (ip >= Ny) ip -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{j+1}, jm{j-1};
+            if (jm < 0) jm += Nx;
+            if (jp >= Nx) jp -= Nx;
+
+            grad[0](i, j) = 0.5 * (field(ip, j ) - field(im, j )) / stencil.dy;
+            grad[1](i, j) = 0.5 * (field(i , jp) - field(i , jm)) / stencil.dx;
+        }
+    }
+
+    return grad;
+}
+
+
 /// The unit tests.
 
 
@@ -103,13 +142,6 @@ TEST_CASE("MoveConstructor")
     kernel::throw_errors();
 }
 
-inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
-{
-    return model.a * field
-         + model.b * field * field
-         + model.c * field * field * field;
-}
-
 TEST_CASE("BulkCurrent")
 {
     int Nx{64}, Ny{32};
@@ -125,26 +157,9 @@ TEST_CASE("BulkCurrent")
         for (int j = 0; j < Nx; ++j)
             mu(i, j) = bulk_chemical_potential(initial(i, j), model);
 
-    // Find current $\vec{J} = - \nabla \mu$ by second-order finite difference:
-    Current expected{Field(Ny, Nx), Field(Ny, Nx)};
-    for (int i = 0; i < Ny; ++i)
-    {
-        // Nearest neighbours in y-direction w/ periodic boundaries:
-        int ip{i+1}, im{i-1};
-        if (im < 0) im += Ny;
-        if (ip >= Ny) ip -= Ny;
-
-        for (int j = 0; j < Nx; ++j)
-        {
-            // Nearest neighbours in x-direction w/ periodic boundaries:
-            int jp{j+1}, jm{j-1};
-            if (jm < 0) jm += Nx;
-            if (jp >= Nx) jp -= Nx;
-
-            expected[0](i, j) = 0.5 * (mu(ip, j ) - mu(im, j )) / stencil.dy;
-            expected[1](i, j) = 0.5 * (mu(i , jp) - mu(i , jm)) / stencil.dx;
-        }
-    }
+    // Current $\vec{J} = - \nabla \mu$:
+    Current expected = gradient(mu, stencil);
+    for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
     assert_equal(expected[0], actual[0]);
