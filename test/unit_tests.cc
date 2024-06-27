@@ -216,3 +216,30 @@ TEST_CASE("PassiveSurfaceCurrent")
     assert_equal(expected[0], actual[0]);
     assert_equal(expected[1], actual[1]);
 }
+
+TEST_CASE("LocalActiveCurrent")
+{
+    int Nx{64}, Ny{32};
+    Field initial = Field::Random(Ny, Nx);
+    Stencil stencil{1e-2, 1, 0.75};
+    Model model{0, 0, 0, 0, 1, 0};
+
+    Integrator simulation(initial, stencil, model);
+    Field field = simulation.get_field();
+
+    // Current $\vec{J} = -\nabla \mu$ with $\mu = \lambda |\nabla\phi|^2$:
+
+    Gradient grad = gradient(field, stencil);
+    Field mu = Field::Zero(Ny, Nx);
+    for (int i = 0; i < Ny; ++i)
+        for (int j = 0; j < Nx; ++j)
+            for (int c = 0; c < d; ++c)
+                mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
+
+    Current expected = gradient(mu, stencil);
+    for (int c = 0; c < d; ++c) expected[c] *= -1;
+
+    Current actual = simulation.get_current();
+    assert_equal(expected[0], actual[0]);
+    assert_equal(expected[1], actual[1]);
+}
