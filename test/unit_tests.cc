@@ -265,6 +265,31 @@ TEST_CASE("LocalActiveCurrent")
     assert_equal<tight_tol>(expected[1], actual[1]);
 }
 
+TEST_CASE("ConservationTest")
+{
+    int Nx{512}, Ny{256};
+    Field initial = 0.1 * Field::Random(Ny, Nx);
+    initial -= Field::Constant(Ny, Nx, initial.mean());
+
+    constexpr int nsteps = 1000;
+    Stencil stencil{1e-1, 1, 0.75};
+
+    for (auto& model : {Model{-0.25, 0  , 0.25, 1, 0, 0},
+                        Model{-0.25, 0.5, 0.25, 1, 0, 0},
+                        Model{-0.25, 0  , 0.25, 1, 1, 0},
+                        Model{-0.25, 0  , 0.25, 1, 0, 1}})
+    {
+        Integrator simulation(initial, stencil, model);
+        Scalar expected_mass = simulation.get_field().sum();
+
+        simulation.run(nsteps);
+        Field field = simulation.get_field();
+
+        Scalar actual_mass = field.sum();
+        assert_equal<loose_tol>(expected_mass, actual_mass);
+    }
+}
+
 
 TEST_CASE("PhaseSeparationTest")
 {
@@ -277,15 +302,10 @@ TEST_CASE("PhaseSeparationTest")
     Model model{-0.25, 0, 0.25, 1, 0, 0};
 
     Integrator simulation(initial, stencil, model);
-    Scalar expected_mass = simulation.get_field().sum();
 
     constexpr int nsteps = 10000;
     simulation.run(nsteps);
     Field field = simulation.get_field();
-
-    // Check conservation law upheld (within numerical precision).
-    Scalar actual_mass = field.sum();
-    assert_equal<loose_tol>(expected_mass, actual_mass);
 
     // Check system is converging towards the binodal.
     Scalar max{field.maxCoeff()}, min{field.minCoeff()};

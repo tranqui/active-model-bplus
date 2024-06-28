@@ -219,8 +219,18 @@ namespace kernel
         Scalar divJ{0};
         divJ += 0.5 * stencil.dyInv * (tile[0][i+1][j] - tile[0][i-1][j]);
         divJ += 0.5 * stencil.dxInv * (tile[1][i][j+1] - tile[1][i][j-1]);
+        divJ += model.lambda;
         field[index] -= stencil.dt * divJ;
     } 
+
+    // Basic kernel to check for errors (e.g. if field become nan or inf).
+    __global__ void check_finite(DeviceField field, bool* finite)
+    {
+        const int row = blockIdx.y * blockDim.y + threadIdx.y;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int index = col + row * ncols;
+        if (not std::isfinite(field[index])) *finite = false;
+    }
 }
 
 
@@ -331,6 +341,20 @@ void Integrator::run(int nsteps [[maybe_unused]])
 
     cudaDeviceSynchronize();
     kernel::throw_errors();
+
+    // Numerical errors in integration often cause fields to diverge or go to nan, so we
+    // need to check for these on the device and raise them up the stack.
+    bool finite{true}, *device_finite;
+    cudaMalloc(&device_finite, sizeof(bool));
+    cudaMemcpy(device_finite, &finite, sizeof(bool), cudaMemcpyHostToDevice);
+    kernel::check_finite<<<grid_size, block_dim>>>(field, device_finite);
+    cudaMemcpy(&finite, device_finite, sizeof(bool), cudaMemcpyDeviceToHost);
+
+    if (not finite)
+    {
+        std::string message = "an unknown numerical error occurred during simulation";
+        throw kernel::CudaError(message);
+    }
 
     timestep += nsteps;
 }
