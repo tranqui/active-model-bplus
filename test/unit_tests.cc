@@ -291,9 +291,7 @@ TEST_CASE("ConservationTest")
         Integrator simulation(initial, stencil, model);
         Scalar expected_mass = simulation.get_field().sum();
 
-        CHECK(simulation.get_timestep() == 0);
         simulation.run(nsteps);
-        CHECK(simulation.get_timestep() == nsteps);
         Field field = simulation.get_field();
 
         Scalar actual_mass = field.sum();
@@ -319,14 +317,25 @@ TEST_CASE("PhaseSeparationTest")
     Integrator simulation(initial, stencil, model);
 
     constexpr int nsteps = 10000;
-    CHECK(simulation.get_timestep() == 0);
     simulation.run(nsteps);
     Field field = simulation.get_field();
-    CHECK(simulation.get_timestep() == nsteps);
 
     // Check system is converging towards the binodal.
     Scalar max{field.maxCoeff()}, min{field.minCoeff()};
     constexpr Scalar tol = 0.1; // need very loose tolerance because system will not have converged
     CHECK(is_equal<tol>(max, 1));
     CHECK(is_equal<tol>(min, -1));
+}
+
+TEST_CASE("TimestepTest")
+{
+    int Nx{64}, Ny{64};
+    Field initial = Field::Random(Ny, Nx);
+
+    Integrator simulation(initial, Stencil{1,1,1}, Model{});
+
+    constexpr int nsteps = 10;
+    CHECK(simulation.get_timestep() == 0);
+    simulation.run(nsteps);
+    CHECK(simulation.get_timestep() == nsteps);
 }
