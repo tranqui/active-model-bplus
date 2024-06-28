@@ -12,9 +12,19 @@ def test_model():
     copy = Model(model)
 
     assert params == model.as_tuple()
+    assert model.a == params[0]
+    assert model.b == params[1]
+    assert model.c == params[2]
+    assert model.kappa == params[3]
+    assert model.lamb == params[4]
+    assert model.zeta == params[5]
     assert copy is not model
     assert copy.as_tuple() == model.as_tuple()
     assert copy.as_dict() == model.as_dict()
+
+    copy.a += 1
+    assert copy.as_tuple() != model.as_tuple()
+    assert copy.as_dict() != model.as_dict()
 
 def test_stencil():
     params = (1, 2, 3)
@@ -22,6 +32,13 @@ def test_stencil():
     copy = Stencil(stencil)
 
     assert params == stencil.as_tuple()
+    assert stencil.dt == params[0]
+    assert stencil.dx == params[1]
+    assert stencil.dy == params[2]
     assert copy is not stencil
     assert copy.as_tuple() == stencil.as_tuple()
     assert copy.as_dict() == stencil.as_dict()
+
+    copy.dx += 1
+    assert copy.as_tuple() != stencil.as_tuple()
+    assert copy.as_dict() != stencil.as_dict()
