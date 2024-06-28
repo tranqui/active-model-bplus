@@ -273,7 +273,7 @@ TEST_CASE("LocalActiveCurrent")
 
 TEST_CASE("ConservationTest")
 {
-    int Nx{16}, Ny{16};
+    int Nx{512}, Ny{256};
     Field initial = 0.1 * Field::Random(Ny, Nx);
     initial -= Field::Constant(Ny, Nx, initial.mean());
 
