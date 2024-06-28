@@ -127,7 +127,8 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        mu[i][j] -= model.kappa * laplacian(tile, i, j);
+        Scalar lap = laplacian(tile, i, j);
+        mu[i][j] -= model.kappa * lap;
         mu[i][j] += model.lambda * grad_squ(tile, i, j);
 
         const int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
@@ -167,6 +168,9 @@ namespace kernel
 
         current[0][index] = -0.5 * (mu[i+1][j] - mu[i-1][j]) * stencil.dyInv;
         current[1][index] = -0.5 * (mu[i][j+1] - mu[i][j-1]) * stencil.dxInv;
+
+        current[0][index] += model.zeta * lap * 0.5 * (tile[i+1][j] - tile[i-1][j]) * stencil.dyInv;
+        current[1][index] += model.zeta * lap * 0.5 * (tile[i][j+1] - tile[i][j-1]) * stencil.dxInv;
     }
 
     __global__ void step(DeviceField field, DeviceCurrent current)
