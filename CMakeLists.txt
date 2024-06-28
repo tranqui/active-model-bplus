@@ -70,11 +70,23 @@ target_include_directories(unit_tests PRIVATE
 enable_testing()
 add_test(NAME unit_tests COMMAND unit_tests)
 
-# Run tests at end of build process
+# Run unit tests at end of build process
 add_custom_command(
     TARGET unit_tests POST_BUILD
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose
     DEPENDS unit_tests
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running tests"
+    COMMENT "Running unit tests"
+)
+
+# Tests to check pybind11 bindings for the python front end
+add_test(NAME test_bindings
+    COMMAND ${Python_EXECUTABLE} -m pytest
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
+)
+add_custom_command(
+    TARGET unit_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_BINARY_DIR}/activemodelbplus ${Python_EXECUTABLE} -m pytest
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
+    COMMENT "Testing python bindings"
 )
