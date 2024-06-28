@@ -32,8 +32,10 @@ PYBIND11_MODULE(integrator, m)
     {
         py::class_<Model> py_class(m, "Model");
         py_class.def(py::init<>())
-                .def(py::init<Scalar, Scalar, Scalar, Scalar, Scalar, Scalar>())
-                .def(py::init<Model>())
+                .def(py::init<Scalar, Scalar, Scalar, Scalar, Scalar, Scalar>(),
+                     py::arg("a"), py::arg("b"), py::arg("c"),
+                     py::arg("kappa"), py::arg("lambda"), py::arg("zeta"))
+                .def(py::init<Model>(), py::arg("model"))
                 .def_readwrite("a", &Model::a)
                 .def_readwrite("b", &Model::b)
                 .def_readwrite("c", &Model::c)
@@ -66,8 +68,9 @@ PYBIND11_MODULE(integrator, m)
     {
         py::class_<Stencil> py_class(m, "Stencil");
         py_class.def(py::init<>())
-                .def(py::init<Scalar, Scalar, Scalar>())
-                .def(py::init<Stencil>())
+                .def(py::init<Scalar, Scalar, Scalar>(),
+                     py::arg("dt"), py::arg("dx"), py::arg("dy"))
+                .def(py::init<Stencil>(), py::arg("stencil"))
                 .def_readwrite("dt", &Stencil::dt)
                 .def_readwrite("dx", &Stencil::dx)
                 .def_readwrite("dy", &Stencil::dy)
@@ -96,11 +99,12 @@ PYBIND11_MODULE(integrator, m)
 
     {
         py::class_<Integrator> py_class(m, "Integrator");
-        py_class.def(py::init<const HostFieldRef&, Stencil, Model>())
+        py_class.def(py::init<const HostFieldRef&, Stencil, Model>(),
+                     py::arg("field"), py::arg("stencil"), py::arg("model"))
                 .def_property_readonly("stencil", &Integrator::get_stencil, py::return_value_policy::move)
                 .def_property_readonly("model", &Integrator::get_model, py::return_value_policy::move)
                 .def_property_readonly("field", &Integrator::get_field, py::return_value_policy::move)
                 .def_property_readonly("timestep", &Integrator::get_timestep)
-                .def("run", &Integrator::run);
+                .def("run", &Integrator::run, py::arg("nsteps"));
     }
 }
