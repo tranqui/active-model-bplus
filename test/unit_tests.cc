@@ -5,7 +5,8 @@
 
 
 // Numerical tolerance for equality with numerical calculations.
-static constexpr Scalar equality_tol = 1e-12;
+static constexpr Scalar tight_tol = 1e-12;
+static constexpr Scalar loose_tol = 1e-6;
 
 
 /// Type-traits to facilitate how tests are performed for different data.
@@ -29,8 +30,19 @@ struct has_as_tuple<T, std::void_t<decltype(std::declval<T>().as_tuple())>>
 
 /// Helper functions for equality assertions with vectorial data.
 
+template <Scalar tolerance>
+void assert_equal(Scalar a, Scalar b)
+{
+    CHECK(std::abs(a - b) < tolerance);
+}
+
+void assert_equal(Scalar a, Scalar b)
+{
+    CHECK(a == b);
+}
+
 // Eigen arrays we have to check matrix size and then element-wise data.
-template <typename T1, typename T2,
+template <Scalar tolerance, typename T1, typename T2,
           typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T1>>::value and
                                       is_eigen_matrix<std::decay_t<T2>>::value>>
 void assert_equal(T1&& a, T2&& b)
@@ -39,7 +51,16 @@ void assert_equal(T1&& a, T2&& b)
     REQUIRE(a.cols() == b.cols());
     for (int i = 0; i < a.rows(); ++i)
         for (int j = 0; j < a.cols(); ++j)
-            REQUIRE(std::abs(a(i,j) - b(i,j)) < equality_tol);
+            if constexpr (tolerance == 0) CHECK (a(i,j) == b(i,j));
+            else CHECK(std::abs(a(i,j) - b(i,j)) <= tolerance);
+}
+
+template <typename T1, typename T2,
+          typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T1>>::value and
+                                      is_eigen_matrix<std::decay_t<T2>>::value>>
+void assert_equal(T1&& a, T2&& b)
+{
+    return assert_equal<Scalar{0}>(std::forward<T1>(a), std::forward<T2>(b));
 }
 
 // Element-wise test in tuples.
@@ -48,7 +69,7 @@ void assert_equal(const std::tuple<T...>& a, const std::tuple<T...>& b)
 {
     auto test = [&](auto m)
     {
-        REQUIRE(std::get<m>(a) == std::get<m>(b));
+        CHECK(std::get<m>(a) == std::get<m>(b));
     };
     for_each(std::index_sequence_for<T...>{}, test);
 }
@@ -143,7 +164,7 @@ TEST_CASE("Constructor")
 
     Integrator simulation(initial, stencil, model);
 
-    assert_equal(initial, simulation.get_field());
+    assert_equal<tight_tol>(initial, simulation.get_field());
     assert_equal(stencil, simulation.get_stencil());
     assert_equal(model, simulation.get_model());
 }
@@ -162,7 +183,7 @@ TEST_CASE("MoveConstructor")
         std::unique_ptr<Integrator> move = std::move(simulation);
         auto actual = move->get_field();
 
-        assert_equal(expected, actual);
+        assert_equal<tight_tol>(expected, actual);
         assert_equal(stencil, move->get_stencil());
         assert_equal(model, move->get_model());
     }
@@ -193,8 +214,8 @@ TEST_CASE("BulkCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal(expected[0], actual[0]);
-    assert_equal(expected[1], actual[1]);
+    assert_equal<tight_tol>(expected[0], actual[0]);
+    assert_equal<tight_tol>(expected[1], actual[1]);
 }
 
 TEST_CASE("PassiveSurfaceCurrent")
@@ -213,8 +234,8 @@ TEST_CASE("PassiveSurfaceCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal(expected[0], actual[0]);
-    assert_equal(expected[1], actual[1]);
+    assert_equal<tight_tol>(expected[0], actual[0]);
+    assert_equal<tight_tol>(expected[1], actual[1]);
 }
 
 TEST_CASE("LocalActiveCurrent")
@@ -240,6 +261,6 @@ TEST_CASE("LocalActiveCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal(expected[0], actual[0]);
-    assert_equal(expected[1], actual[1]);
+    assert_equal<tight_tol>(expected[0], actual[0]);
+    assert_equal<tight_tol>(expected[1], actual[1]);
 }
