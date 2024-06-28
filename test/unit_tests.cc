@@ -31,55 +31,61 @@ struct has_as_tuple<T, std::void_t<decltype(std::declval<T>().as_tuple())>>
 /// Helper functions for equality assertions with vectorial data.
 
 template <Scalar tolerance>
-void assert_equal(Scalar a, Scalar b)
+bool is_equal(Scalar a, Scalar b)
 {
-    CHECK(std::abs(a - b) < tolerance);
+    return std::abs(a - b) < tolerance;
 }
 
-void assert_equal(Scalar a, Scalar b)
+bool is_equal(Scalar a, Scalar b)
 {
-    CHECK(a == b);
+    return a == b;
 }
 
 // Eigen arrays we have to check matrix size and then element-wise data.
 template <Scalar tolerance, typename T1, typename T2,
           typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T1>>::value and
                                       is_eigen_matrix<std::decay_t<T2>>::value>>
-void assert_equal(T1&& a, T2&& b)
+bool is_equal(T1&& a, T2&& b)
 {
-    REQUIRE(a.rows() == b.rows());
-    REQUIRE(a.cols() == b.cols());
+    if (a.rows() != b.rows()) return false;
+    if (a.cols() != b.cols()) return false;
     for (int i = 0; i < a.rows(); ++i)
         for (int j = 0; j < a.cols(); ++j)
-            if constexpr (tolerance == 0) CHECK (a(i,j) == b(i,j));
-            else CHECK(std::abs(a(i,j) - b(i,j)) <= tolerance);
+            if constexpr (tolerance == 0)
+            {
+                if (a(i,j) != b(i,j)) return false;
+            }
+            else if (std::abs(a(i,j) - b(i,j)) > tolerance) return false;
+    return true;
 }
 
 template <typename T1, typename T2,
           typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T1>>::value and
                                       is_eigen_matrix<std::decay_t<T2>>::value>>
-void assert_equal(T1&& a, T2&& b)
+bool is_equal(T1&& a, T2&& b)
 {
-    return assert_equal<Scalar{0}>(std::forward<T1>(a), std::forward<T2>(b));
+    return is_equal<Scalar{0}>(std::forward<T1>(a), std::forward<T2>(b));
 }
 
 // Element-wise test in tuples.
 template <typename... T>
-void assert_equal(const std::tuple<T...>& a, const std::tuple<T...>& b)
+bool is_equal(const std::tuple<T...>& a, const std::tuple<T...>& b)
 {
+    bool flag{true};
     auto test = [&](auto m)
     {
-        CHECK(std::get<m>(a) == std::get<m>(b));
+        if (std::get<m>(a) != std::get<m>(b)) flag = false;
     };
     for_each(std::index_sequence_for<T...>{}, test);
+    return flag;
 }
 
 // Overload for structured data: cast to tuple then test.
 template <typename Params,
           typename = std::enable_if_t<has_as_tuple<Params>::value>>
-void assert_equal(const Params& a, const Params& b)
+bool is_equal(const Params& a, const Params& b)
 {
-    assert_equal(a.as_tuple(), b.as_tuple());
+    return is_equal(a.as_tuple(), b.as_tuple());
 }
 
 
@@ -164,9 +170,9 @@ TEST_CASE("Constructor")
 
     Integrator simulation(initial, stencil, model);
 
-    assert_equal<tight_tol>(initial, simulation.get_field());
-    assert_equal(stencil, simulation.get_stencil());
-    assert_equal(model, simulation.get_model());
+    CHECK(is_equal<tight_tol>(initial, simulation.get_field()));
+    CHECK(is_equal(stencil, simulation.get_stencil()));
+    CHECK(is_equal(model, simulation.get_model()));
 }
 
 TEST_CASE("MoveConstructor")
@@ -183,9 +189,9 @@ TEST_CASE("MoveConstructor")
         std::unique_ptr<Integrator> move = std::move(simulation);
         auto actual = move->get_field();
 
-        assert_equal<tight_tol>(expected, actual);
-        assert_equal(stencil, move->get_stencil());
-        assert_equal(model, move->get_model());
+        CHECK(is_equal<tight_tol>(expected, actual));
+        CHECK(is_equal(stencil, move->get_stencil()));
+        CHECK(is_equal(model, move->get_model()));
     }
 
     // Check destructor did not call twice (which would raise a CUDA error upon trying
@@ -214,8 +220,8 @@ TEST_CASE("BulkCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal<tight_tol>(expected[0], actual[0]);
-    assert_equal<tight_tol>(expected[1], actual[1]);
+    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
+    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
 }
 
 TEST_CASE("PassiveSurfaceCurrent")
@@ -234,8 +240,8 @@ TEST_CASE("PassiveSurfaceCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal<tight_tol>(expected[0], actual[0]);
-    assert_equal<tight_tol>(expected[1], actual[1]);
+    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
+    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
 }
 
 TEST_CASE("LocalActiveCurrent")
@@ -261,23 +267,26 @@ TEST_CASE("LocalActiveCurrent")
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
-    assert_equal<tight_tol>(expected[0], actual[0]);
-    assert_equal<tight_tol>(expected[1], actual[1]);
+    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
+    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
 }
 
 TEST_CASE("ConservationTest")
 {
-    int Nx{512}, Ny{256};
+    int Nx{16}, Ny{16};
     Field initial = 0.1 * Field::Random(Ny, Nx);
     initial -= Field::Constant(Ny, Nx, initial.mean());
 
     constexpr int nsteps = 1000;
     Stencil stencil{1e-1, 1, 0.75};
 
+    Field previous;
+    bool first{true};
+
     for (auto& model : {Model{-0.25, 0  , 0.25, 1, 0, 0},
                         Model{-0.25, 0.5, 0.25, 1, 0, 0},
-                        Model{-0.25, 0  , 0.25, 1, 1, 0},
-                        Model{-0.25, 0  , 0.25, 1, 0, 1}})
+                        Model{-0.25, 0.5, 0.25, 1, 1, 0},
+                        Model{-0.25, 0.5, 0.25, 1, 1, 1}})
     {
         Integrator simulation(initial, stencil, model);
         Scalar expected_mass = simulation.get_field().sum();
@@ -286,7 +295,12 @@ TEST_CASE("ConservationTest")
         Field field = simulation.get_field();
 
         Scalar actual_mass = field.sum();
-        assert_equal<loose_tol>(expected_mass, actual_mass);
+        CHECK(is_equal<loose_tol>(expected_mass, actual_mass));
+
+        // Different parameter sets should have different trajectories.
+        if (not first) CHECK(not is_equal<loose_tol>(field, previous));
+        first = false;
+        previous = Field{std::move(field)};
     }
 }
 
@@ -310,6 +324,6 @@ TEST_CASE("PhaseSeparationTest")
     // Check system is converging towards the binodal.
     Scalar max{field.maxCoeff()}, min{field.minCoeff()};
     constexpr Scalar tol = 0.1; // need very loose tolerance because system will not have converged
-    assert_equal<tol>(max, 1);
-    assert_equal<tol>(min, -1);
+    CHECK(is_equal<tol>(max, 1));
+    CHECK(is_equal<tol>(min, -1));
 }
