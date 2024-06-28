@@ -168,6 +168,59 @@ namespace kernel
         current[0][index] = -0.5 * (mu[i+1][j] - mu[i-1][j]) * stencil.dyInv;
         current[1][index] = -0.5 * (mu[i][j+1] - mu[i][j-1]) * stencil.dxInv;
     }
+
+    __global__ void step(DeviceField field, DeviceCurrent current)
+    {
+        constexpr int num_ghost = 2; // only need first order derivative to take divergence of current
+
+        // Global indices.
+        const int row = blockIdx.y * blockDim.y + threadIdx.y;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int index = col + row * ncols;
+
+        // Local indices.
+        const int i = threadIdx.y + num_ghost;
+        const int j = threadIdx.x + num_ghost;
+
+        // Load current tile into shared memory.
+
+        __shared__ Scalar tile[d][tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
+
+        for (int c = 0; c < d; ++c)
+        {
+            tile[c][i][j] = current[c][index];
+
+            // Fill in ghost points.
+
+            if (threadIdx.y < num_ghost)
+            {
+                tile[c][i - num_ghost][j] = current[c][col + ((row - num_ghost + nrows) % nrows) * ncols];
+                tile[c][i + tile_rows][j] = current[c][col + ((row + tile_rows) % nrows) * ncols];
+            }
+
+            if (threadIdx.x < num_ghost)
+            {
+                tile[c][i][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + row * ncols];
+                tile[c][i][j + tile_cols] = current[c][(col + tile_cols) % ncols         + row * ncols];
+            }
+
+            if (threadIdx.x < num_ghost and threadIdx.y < num_ghost)
+            {
+                tile[c][i - num_ghost][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row - num_ghost + nrows) % nrows) * ncols];
+                tile[c][i - num_ghost][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
+                tile[c][i + tile_rows][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
+                tile[c][i + tile_rows][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
+            }
+        }
+
+        __syncthreads();
+
+        // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
+        Scalar divJ{0};
+        divJ += 0.5 * stencil.dyInv * (tile[0][i+1][j] - tile[0][i-1][j]);
+        divJ += 0.5 * stencil.dxInv * (tile[1][i][j+1] - tile[1][i][j-1]);
+        field[index] -= stencil.dt * divJ;
+    } 
 }
 
 
@@ -264,5 +317,20 @@ void Integrator::calculate_current()
 
 void Integrator::run(int nsteps [[maybe_unused]])
 {
-    return;
+    set_device_parameters();
+    const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
+    const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
+                         (nrows + block_dim.y - 1) / block_dim.y);
+
+
+    for (int i = 0; i < nsteps; ++i)
+    {
+        kernel::calculate_current<<<grid_size, block_dim>>>(field, current);
+        kernel::step<<<grid_size, block_dim>>>(field, current);
+    }
+
+    cudaDeviceSynchronize();
+    kernel::throw_errors();
+
+    timestep += nsteps;
 }
