@@ -219,7 +219,6 @@ namespace kernel
         Scalar divJ{0};
         divJ += 0.5 * stencil.dyInv * (tile[0][i+1][j] - tile[0][i-1][j]);
         divJ += 0.5 * stencil.dxInv * (tile[1][i][j+1] - tile[1][i][j-1]);
-        divJ += model.lambda;
         field[index] -= stencil.dt * divJ;
     } 
 
