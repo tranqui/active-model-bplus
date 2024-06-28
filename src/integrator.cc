@@ -83,4 +83,14 @@ PYBIND11_MODULE(integrator, m)
                         return py::str("<Stencil ") + py::str(stencil_as_dict(stencil)) + py::str(">");
                     });
     }
+
+    {
+        py::class_<Integrator> py_class(m, "Integrator");
+        py_class.def(py::init<const HostFieldRef&, Stencil, Model>())
+                .def_property_readonly("stencil", &Integrator::get_stencil, py::return_value_policy::move)
+                .def_property_readonly("model", &Integrator::get_model, py::return_value_policy::move)
+                .def_property_readonly("field", &Integrator::get_field, py::return_value_policy::move)
+                .def_property_readonly("timestep", &Integrator::get_timestep)
+                .def("run", &Integrator::run);
+    }
 }
