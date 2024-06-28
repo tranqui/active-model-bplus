@@ -49,14 +49,16 @@ def test_integrator():
     model = Model(0.25, 0.5, 0.25, 1, 1, 1)
 
     Nx, Ny = 256, 128
-    initial = np.random.random(Ny, Nx)
+    initial = np.random.random((Ny, Nx))
 
     sim = Integrator(initial, stencil, model)
-    assert sim.field == initial
-    assert sim.stencil == stencil
-    assert sim.model == model
+    assert (sim.field == initial).all()
+    assert sim.stencil is not stencil
+    assert sim.model is not model
+    assert sim.stencil.as_tuple() == stencil.as_tuple()
+    assert sim.model.as_tuple() == model.as_tuple()
 
     assert sim.timestep == 0
     sim.run(1)
-    assert sim.field != initial
+    assert (sim.field != initial).any()
     assert sim.timestep == 1
