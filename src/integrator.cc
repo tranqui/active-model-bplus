@@ -46,6 +46,11 @@ PYBIND11_MODULE(integrator, m)
                     {
                         return model.as_tuple();
                     })
+                .def("__eq__",
+                    [](const Model& a, const Model& b)
+                    {
+                        return a == b;
+                    })
                 .def("__str__",
                     [](const Model& model)
                     {
@@ -71,6 +76,11 @@ PYBIND11_MODULE(integrator, m)
                     [](const Stencil& stencil)
                     {
                         return stencil.as_tuple();
+                    })
+                .def("__eq__",
+                    [](const Stencil& a, const Stencil& b)
+                    {
+                        return a == b;
                     })
                 .def("__str__",
                     [](const Stencil& stencil)

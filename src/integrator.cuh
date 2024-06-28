@@ -55,6 +55,11 @@ struct HostStencilParams
     {
         return std::tie(dt, dx, dy);
     }
+
+    inline friend bool operator==(const HostStencilParams& a, const HostStencilParams& b)
+    {
+        return a.dt == b.dt and a.dx == b.dx and a.dy == b.dy;
+    }
 };
 
 struct DeviceStencilParams
@@ -81,6 +86,12 @@ struct ActiveModelBPlusParams
     inline auto as_tuple() const
     {
         return std::tie(a, b, c, kappa, lambda, zeta);
+    }
+
+    inline friend bool operator==(const ActiveModelBPlusParams& a, const ActiveModelBPlusParams& b)
+    {
+        return a.a == b.a and a.b == b.b and a.c == b.c and
+            a.kappa == b.kappa and a.lambda == b.lambda and a.zeta == b.zeta;
     }
 };
 
