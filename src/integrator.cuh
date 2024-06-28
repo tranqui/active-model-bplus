@@ -109,6 +109,10 @@ public:
     Model get_model() const;
     HostField get_field() const;
     HostCurrent get_current();
+    inline int get_timestep() const
+    {
+        return timestep;
+    }
 
     void run(int nsteps);
 
