@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 import pytest
+import numpy as np
 
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from activemodelbplus.integrator import Model, Stencil
+from activemodelbplus.integrator import Model, Stencil, Integrator
 
 def test_model():
     params = (1, 2, 3, 4, 5, 6)
@@ -42,3 +43,20 @@ def test_stencil():
     copy.dx += 1
     assert copy.as_tuple() != stencil.as_tuple()
     assert copy.as_dict() != stencil.as_dict()
+
+def test_integrator():
+    stencil = Stencil(1e-2, 1, 1)
+    model = Model(0.25, 0.5, 0.25, 1, 1, 1)
+
+    Nx, Ny = 256, 128
+    initial = np.random.random(Ny, Nx)
+
+    sim = Integrator(initial, stencil, model)
+    assert sim.field == initial
+    assert sim.stencil == stencil
+    assert sim.model == model
+
+    assert sim.timestep == 0
+    sim.run(1)
+    assert sim.field != initial
+    assert sim.timestep == 1
