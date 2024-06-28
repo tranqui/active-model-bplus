@@ -304,7 +304,6 @@ TEST_CASE("ConservationTest")
     }
 }
 
-
 TEST_CASE("PhaseSeparationTest")
 {
     int Nx{512}, Ny{256};
