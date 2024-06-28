@@ -261,3 +261,8 @@ void Integrator::calculate_current()
 
     timestep_calculated_current = timestep;
 }
+
+void Integrator::run(int nsteps [[maybe_unused]])
+{
+    return;
+}

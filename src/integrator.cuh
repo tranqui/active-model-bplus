@@ -110,6 +110,8 @@ public:
     HostField get_field() const;
     HostCurrent get_current();
 
+    void run(int nsteps);
+
 protected:
     Stencil stencil;
     Model model;

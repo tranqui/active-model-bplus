@@ -264,3 +264,32 @@ TEST_CASE("LocalActiveCurrent")
     assert_equal<tight_tol>(expected[0], actual[0]);
     assert_equal<tight_tol>(expected[1], actual[1]);
 }
+
+
+TEST_CASE("PhaseSeparationTest")
+{
+    int Nx{512}, Ny{256};
+    Field initial = 0.1 * Field::Random(Ny, Nx);
+    initial -= Field::Constant(Ny, Nx, initial.mean());
+
+    Stencil stencil{1e-1, 1, 0.75};
+    // Parameters for phase separation with binodal at \phi = \pm 1.
+    Model model{-0.25, 0, 0.25, 1, 0, 0};
+
+    Integrator simulation(initial, stencil, model);
+    Scalar expected_mass = simulation.get_field().sum();
+
+    constexpr int nsteps = 10000;
+    simulation.run(nsteps);
+    Field field = simulation.get_field();
+
+    // Check conservation law upheld (within numerical precision).
+    Scalar actual_mass = field.sum();
+    assert_equal<loose_tol>(expected_mass, actual_mass);
+
+    // Check system is converging towards the binodal.
+    Scalar max{field.maxCoeff()}, min{field.minCoeff()};
+    constexpr Scalar tol = 0.1; // need very loose tolerance because system will not have converged
+    assert_equal<tol>(max, 1);
+    assert_equal<tol>(min, -1);
+}
