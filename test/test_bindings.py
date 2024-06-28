@@ -20,10 +20,12 @@ def test_model():
     assert model.lamb == params[4]
     assert model.zeta == params[5]
     assert copy is not model
+    assert copy == model
     assert copy.as_tuple() == model.as_tuple()
     assert copy.as_dict() == model.as_dict()
 
     copy.a += 1
+    assert copy != model
     assert copy.as_tuple() != model.as_tuple()
     assert copy.as_dict() != model.as_dict()
 
@@ -37,6 +39,7 @@ def test_stencil():
     assert stencil.dx == params[1]
     assert stencil.dy == params[2]
     assert copy is not stencil
+    assert copy == stencil
     assert copy.as_tuple() == stencil.as_tuple()
     assert copy.as_dict() == stencil.as_dict()
 
@@ -55,6 +58,8 @@ def test_integrator():
     assert (sim.field == initial).all()
     assert sim.stencil is not stencil
     assert sim.model is not model
+    assert sim.stencil == stencil
+    assert model == model
     assert sim.stencil.as_tuple() == stencil.as_tuple()
     assert sim.model.as_tuple() == model.as_tuple()
 
