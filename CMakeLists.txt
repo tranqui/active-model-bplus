@@ -25,7 +25,7 @@ add_library(integrator-kernel SHARED src/integrator.cu src/integrator.cuh src/fo
 target_include_directories(integrator-kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${EIGEN3_INCLUDE_DIRS})
 set_target_properties(integrator-kernel PROPERTIES
                       CUDA_SEPARABLE_COMPILATION ON
-                      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/activemodelbplus
+                      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/activemodelbplus/integrator
 )
 
 # Python bindings
@@ -33,27 +33,37 @@ pybind11_add_module(integrator src/integrator.cc)
 add_dependencies(integrator integrator-kernel)
 target_link_libraries(integrator PUBLIC pybind11::headers Eigen3::Eigen PRIVATE integrator-kernel)
 target_include_directories(integrator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${EIGEN3_INCLUDE_DIRS})
-set_target_properties(integrator PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/activemodelbplus)
+set_target_properties(integrator PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/activemodelbplus/integrator)
 
 # Copy Python files to the build directory ready for make install
-file(GLOB PYTHON_FILES ${CMAKE_CURRENT_SOURCE_DIR}/activemodelbplus/*.py)
+# Find all Python files recursively
+file(GLOB_RECURSE PYTHON_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/activemodelbplus/*.py)
+
 foreach(PY_FILE ${PYTHON_FILES})
-  get_filename_component(PY_FILENAME ${PY_FILE} NAME)
+  get_filename_component(PY_DIR ${PY_FILE} DIRECTORY)
+
   add_custom_command(
     TARGET integrator POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${PY_FILE}
-            $<TARGET_FILE_DIR:integrator>/${PY_FILENAME}
-    COMMENT "Copying ${PY_FILE} to build directory")
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/${PY_DIR}
+    COMMENT "Creating directory ${PY_DIR} in build directory"
+  )
+
+  add_custom_command(
+    TARGET integrator POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${PY_FILE}
+            ${CMAKE_CURRENT_BINARY_DIR}/${PY_FILE}
+    COMMENT "Copying ${PY_FILE} to build directory"
+  )
 endforeach()
 
 # Copy link targets into the python directory for local availability
-file(GLOB STATIC_OBJECTS ${CMAKE_CURRENT_SOURCE_DIR}/build/activemodelbplus/*.so)
+file(GLOB STATIC_OBJECTS ${CMAKE_CURRENT_SOURCE_DIR}/build/activemodelbplus/integrator/*.so)
 foreach(SO_FILE ${STATIC_OBJECTS})
   get_filename_component(SO_FILENAME ${SO_FILE} NAME)
   add_custom_command(
     TARGET integrator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SO_FILE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/activemodelbplus/${SO_FILENAME}
+            ${CMAKE_CURRENT_SOURCE_DIR}/activemodelbplus/integrator/${SO_FILENAME}
     COMMENT "Copying ${SO_FILE} to module")
 endforeach()
 
