@@ -1,5 +1,7 @@
-#include "integrator.cuh"
-#include "foreach.cuh"
+#include "integrator.h"
+#include "parameters.cuh"
+#include "foreach.h"
+#include "finite_differences.cuh"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -26,22 +28,6 @@ namespace kernel
         }
     }
 
-    // Implementation is on a 2d grid with periodic boundary conditions.
-    // GPU divided into an (tile_rows x tile_cols) tile (blocks) with
-    // a CUDA thread for each tile sharing this memory. Varying the tile size
-    // will potentially improve performance on different hardware - I found
-    // 16x16 was close to optimum on my machine for simulations on a 1024x1024 grid.
-    static constexpr int tile_rows = 16;
-    static constexpr int tile_cols = 16;
-    // We need ghost points for each tile so we can evaluate derivatives at tile borders.
-    static constexpr int num_ghost = 2; // <- minimum for second-order finite-difference stencil up to fourth-order derivatives.
-
-    // Stencil parameters - 2d space (x, y), and time t.
-    __constant__ DeviceStencilParams stencil;
-    __constant__ int nrows, ncols;        // number of points in spatial grid
-    __constant__ Model model;
-
-
     /// Physical calculations
 
     __device__ inline Scalar bulk_chemical_potential(Scalar field)
@@ -53,22 +39,6 @@ namespace kernel
     {
         return model.a + 2 * model.b * field + 3 * model.c * field * field;
     }
-
-    template <typename T>
-    __device__ inline Scalar laplacian(T&& tile, int i, int j)
-    {
-        return  stencil.dyInv*stencil.dyInv * (tile[i+1][j] + tile[i-1][j])
-              + stencil.dxInv*stencil.dxInv * (tile[i][j+1] + tile[i][j-1])
-              - 2*(stencil.dxInv*stencil.dxInv + stencil.dyInv*stencil.dyInv) * tile[i][j];
-    }
-
-    template <typename T>
-    __device__ inline Scalar grad_squ(T&& tile, int i, int j)
-    {
-        return 0.25 * (stencil.dyInv*stencil.dyInv * (tile[i+1][j] - tile[i-1][j]) * (tile[i+1][j] - tile[i-1][j])
-                     + stencil.dxInv*stencil.dxInv * (tile[i][j+1] - tile[i][j-1]) * (tile[i][j+1] - tile[i][j-1]));
-    }
-
 
     /// Kernel to determine current.
 
@@ -127,55 +97,56 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        Scalar lap = laplacian(tile, i, j);
+        Scalar lap = FiniteDifference::laplacian(tile, i, j);
         mu[i][j] -= model.kappa * lap;
-        mu[i][j] += model.lambda * grad_squ(tile, i, j);
+        mu[i][j] += model.lambda * FiniteDifference::grad_squ(tile, i, j);
 
-        const int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
+        constexpr int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
+        constexpr int min_index = num_ghost - 1; // need one fewer for this higher derivative
 
-        if (threadIdx.y < num_ghost and threadIdx.y >= 1)
+        if (threadIdx.y < num_ghost and threadIdx.y >= min_index)
         {
-            mu[i - num_ghost][j] -= model.kappa * laplacian(tile, i - num_ghost, j);
-            mu[i + row_shift][j] -= model.kappa * laplacian(tile, i + row_shift, j);
+            mu[i - num_ghost][j] -= model.kappa * FiniteDifference::laplacian(tile, i - num_ghost, j);
+            mu[i + row_shift][j] -= model.kappa * FiniteDifference::laplacian(tile, i + row_shift, j);
 
-            mu[i - num_ghost][j] += model.lambda * grad_squ(tile, i - num_ghost, j);
-            mu[i + row_shift][j] += model.lambda * grad_squ(tile, i + row_shift, j);
+            mu[i - num_ghost][j] += model.lambda * FiniteDifference::grad_squ(tile, i - num_ghost, j);
+            mu[i + row_shift][j] += model.lambda * FiniteDifference::grad_squ(tile, i + row_shift, j);
         }
 
-        if (threadIdx.x < num_ghost and threadIdx.x >= 1)
+        if (threadIdx.x < num_ghost and threadIdx.x >= min_index)
         {
-            mu[i][j - num_ghost] -= model.kappa * laplacian(tile, i, j - num_ghost);
-            mu[i][j + col_shift] -= model.kappa * laplacian(tile, i, j + col_shift);
+            mu[i][j - num_ghost] -= model.kappa * FiniteDifference::laplacian(tile, i, j - num_ghost);
+            mu[i][j + col_shift] -= model.kappa * FiniteDifference::laplacian(tile, i, j + col_shift);
 
-            mu[i][j - num_ghost] += model.lambda * grad_squ(tile, i, j - num_ghost);
-            mu[i][j + col_shift] += model.lambda * grad_squ(tile, i, j + col_shift);
+            mu[i][j - num_ghost] += model.lambda * FiniteDifference::grad_squ(tile, i, j - num_ghost);
+            mu[i][j + col_shift] += model.lambda * FiniteDifference::grad_squ(tile, i, j + col_shift);
         }
 
-        if (threadIdx.y < num_ghost and threadIdx.y >= 1 and threadIdx.x < num_ghost and threadIdx.x >= 1)
+        if (threadIdx.y < num_ghost and threadIdx.y >= min_index and threadIdx.x < num_ghost and threadIdx.x >= min_index)
         {
-            mu[i - num_ghost][j - num_ghost] -= model.kappa * laplacian(tile, i - num_ghost, j - num_ghost);
-            mu[i - num_ghost][j + col_shift] -= model.kappa * laplacian(tile, i - num_ghost, j + col_shift);
-            mu[i + row_shift][j - num_ghost] -= model.kappa * laplacian(tile, i + row_shift, j - num_ghost);
-            mu[i + row_shift][j + col_shift] -= model.kappa * laplacian(tile, i + row_shift, j + col_shift);
+            mu[i - num_ghost][j - num_ghost] -= model.kappa * FiniteDifference::laplacian(tile, i - num_ghost, j - num_ghost);
+            mu[i - num_ghost][j + col_shift] -= model.kappa * FiniteDifference::laplacian(tile, i - num_ghost, j + col_shift);
+            mu[i + row_shift][j - num_ghost] -= model.kappa * FiniteDifference::laplacian(tile, i + row_shift, j - num_ghost);
+            mu[i + row_shift][j + col_shift] -= model.kappa * FiniteDifference::laplacian(tile, i + row_shift, j + col_shift);
 
-            mu[i - num_ghost][j - num_ghost] += model.lambda * grad_squ(tile, i - num_ghost, j - num_ghost);
-            mu[i - num_ghost][j + col_shift] += model.lambda * grad_squ(tile, i - num_ghost, j + col_shift);
-            mu[i + row_shift][j - num_ghost] += model.lambda * grad_squ(tile, i + row_shift, j - num_ghost);
-            mu[i + row_shift][j + col_shift] += model.lambda * grad_squ(tile, i + row_shift, j + col_shift);
+            mu[i - num_ghost][j - num_ghost] += model.lambda * FiniteDifference::grad_squ(tile, i - num_ghost, j - num_ghost);
+            mu[i - num_ghost][j + col_shift] += model.lambda * FiniteDifference::grad_squ(tile, i - num_ghost, j + col_shift);
+            mu[i + row_shift][j - num_ghost] += model.lambda * FiniteDifference::grad_squ(tile, i + row_shift, j - num_ghost);
+            mu[i + row_shift][j + col_shift] += model.lambda * FiniteDifference::grad_squ(tile, i + row_shift, j + col_shift);
         }
 
         __syncthreads();
 
-        current[0][index] = -0.5 * (mu[i+1][j] - mu[i-1][j]) * stencil.dyInv;
-        current[1][index] = -0.5 * (mu[i][j+1] - mu[i][j-1]) * stencil.dxInv;
+        current[0][index] = -FiniteDifference::grad_y(mu, i, j);
+        current[1][index] = -FiniteDifference::grad_x(mu, i, j);
 
-        current[0][index] += model.zeta * lap * 0.5 * (tile[i+1][j] - tile[i-1][j]) * stencil.dyInv;
-        current[1][index] += model.zeta * lap * 0.5 * (tile[i][j+1] - tile[i][j-1]) * stencil.dxInv;
+        current[0][index] += model.zeta * lap * FiniteDifference::grad_y(tile, i, j);
+        current[1][index] += model.zeta * lap * FiniteDifference::grad_x(tile, i, j);
     }
 
     __global__ void step(DeviceField field, DeviceCurrent current)
     {
-        constexpr int num_ghost = 2; // only need first order derivative to take divergence of current
+        constexpr int num_ghost = 2;
 
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -220,11 +191,10 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ{0};
-        divJ += 0.5 * stencil.dyInv * (tile[0][i+1][j] - tile[0][i-1][j]);
-        divJ += 0.5 * stencil.dxInv * (tile[1][i][j+1] - tile[1][i][j-1]);
+        Scalar divJ = FiniteDifference::grad_y(tile[0], i, j)
+                    + FiniteDifference::grad_x(tile[1], i, j);
         field[index] -= stencil.dt * divJ;
-    } 
+    }
 
     // Basic kernel to check for errors (e.g. if field become nan or inf).
     __global__ void check_finite(DeviceField field, bool* finite)

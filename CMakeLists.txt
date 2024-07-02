@@ -21,7 +21,7 @@ set(CMAKE_CXX_FLAGS "-Ofast")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr -diag-suppress 20012 --use_fast_math -ftz=true -prec-div=false -prec-sqrt=false")
 
 # CUDA kernel
-add_library(integrator-kernel SHARED src/integrator.cu src/integrator.cuh src/foreach.cuh)
+add_library(integrator-kernel SHARED src/integrator.cu src/parameters.cu src/integrator.h src/parameters.h src/parameters.cuh src/foreach.h src/finite_differences.cuh)
 target_include_directories(integrator-kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${EIGEN3_INCLUDE_DIRS})
 set_target_properties(integrator-kernel PROPERTIES
                       CUDA_SEPARABLE_COMPILATION ON
