@@ -332,10 +332,12 @@ TEST_CASE("TimestepTest")
     int Nx{64}, Ny{64};
     Field initial = Field::Random(Ny, Nx);
 
-    Integrator simulation(initial, Stencil{1,1,1}, Model{});
+    constexpr Scalar dt = 0.1;
+    Integrator simulation(initial, Stencil{dt,1,1}, Model{});
 
     constexpr int nsteps = 10;
     CHECK(simulation.get_timestep() == 0);
     simulation.run(nsteps);
     CHECK(simulation.get_timestep() == nsteps);
+    CHECK(is_equal<tight_tol>(simulation.get_time(), nsteps * dt));
 }

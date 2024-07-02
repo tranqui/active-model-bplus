@@ -67,3 +67,4 @@ def test_integrator():
     sim.run(1)
     assert (sim.field != initial).any()
     assert sim.timestep == 1
+    assert sim.time == stencil.dt

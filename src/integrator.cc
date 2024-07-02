@@ -104,6 +104,7 @@ PYBIND11_MODULE(integrator, m)
                 .def_property_readonly("stencil", &Integrator::get_stencil, py::return_value_policy::move)
                 .def_property_readonly("model", &Integrator::get_model, py::return_value_policy::move)
                 .def_property_readonly("field", &Integrator::get_field, py::return_value_policy::move)
+                .def_property_readonly("time", &Integrator::get_time)
                 .def_property_readonly("timestep", &Integrator::get_timestep)
                 .def("run", &Integrator::run, py::arg("nsteps"));
     }

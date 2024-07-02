@@ -120,9 +120,15 @@ public:
     Model get_model() const;
     HostField get_field() const;
     HostCurrent get_current();
+
     inline int get_timestep() const
     {
         return timestep;
+    }
+
+    inline Scalar get_time() const
+    {
+        return timestep * stencil.dt;
     }
 
     void run(int nsteps);
