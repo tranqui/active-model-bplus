@@ -34,7 +34,7 @@ PYBIND11_MODULE(integrator, m)
         py_class.def(py::init<>())
                 .def(py::init<Scalar, Scalar, Scalar, Scalar, Scalar, Scalar>(),
                      py::arg("a"), py::arg("b"), py::arg("c"),
-                     py::arg("kappa"), py::arg("lambda"), py::arg("zeta"))
+                     py::arg("kappa"), py::arg("lamb"), py::arg("zeta"))
                 .def(py::init<Model>(), py::arg("model"))
                 .def_readwrite("a", &Model::a)
                 .def_readwrite("b", &Model::b)
