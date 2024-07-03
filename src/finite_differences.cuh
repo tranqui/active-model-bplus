@@ -157,17 +157,31 @@ namespace kernel
                     return stencil.dyInv * (tile[i][j] - tile[i-1][j]);
             }
 
-            // template <typename T>
-            // static __device__ inline Scalar lap_x(T&& tile, int i, int j)
-            // {
-            //     return stencil.dxInv*stencil.dxInv * (tile[i][j+1] - 2*tile[i][j] + tile[i][j-1]);
-            // }
+            template <typename T>
+            static __device__ inline Scalar lap_x(T&& tile, int i, int j)
+            {
+                if constexpr (StaggerDirection == Right)
+                    return 0.25 * stencil.dxInv * stencil.dxInv * (
+                        (tile[i][j+2] - tile[i][ j ] + tile[i+1][j+2] - tile[i+1][ j ])
+                      - (tile[i][j+1] - tile[i][j-1] + tile[i+1][j+1] - tile[i+1][j-1]) );
+                else
+                    return 0.25 * stencil.dxInv * stencil.dxInv * (
+                        (tile[i][j+1] - tile[i][j-1] + tile[i-1][j+1] - tile[i-1][j-1])
+                      - (tile[i][ j ] - tile[i][j-2] + tile[i-1][ j ] - tile[i-1][j-2]) );
+            }
 
-            // template <typename T>
-            // static __device__ inline Scalar lap_y(T&& tile, int i, int j)
-            // {
-            //     return stencil.dyInv*stencil.dyInv * (tile[i+1][j] - 2*tile[i][j] + tile[i-1][j]);
-            // }
+            template <typename T>
+            static __device__ inline Scalar lap_y(T&& tile, int i, int j)
+            {
+                if constexpr (StaggerDirection == Right)
+                    return 0.25 * stencil.dyInv * stencil.dyInv * (
+                        (tile[i+2][j] - tile[ i ][j] + tile[i+2][j+1] - tile[ i ][j+1])
+                      - (tile[i+1][j] - tile[i-1][j] + tile[i+1][j+1] - tile[i-1][j+1]) );
+                else
+                    return 0.25 * stencil.dyInv * stencil.dyInv * (
+                        (tile[i+1][j] - tile[i-1][j] + tile[i+1][j-1] - tile[i-1][j-1])
+                      - (tile[ i ][j] - tile[i-2][j] + tile[ i ][j-1] - tile[i-2][j-1]) );
+            }
         };
     }
 

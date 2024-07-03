@@ -97,8 +97,7 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        Scalar lap = CentralDifference::laplacian(tile, i, j);
-        mu[i][j] -= model.kappa * lap;
+        mu[i][j] -= model.kappa * CentralDifference::laplacian(tile, i, j);
         mu[i][j] += model.lambda * CentralDifference::grad_squ(tile, i, j);
 
         constexpr int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
@@ -140,8 +139,9 @@ namespace kernel
         current[0][index] = -StaggeredDifference<Right>::grad_y(mu, i, j);
         current[1][index] = -StaggeredDifference<Right>::grad_x(mu, i, j);
 
-        current[0][index] += model.zeta * lap * CentralDifference::grad_y(tile, i, j);
-        current[1][index] += model.zeta * lap * CentralDifference::grad_x(tile, i, j);
+        Scalar lap = StaggeredDifference<Right>::laplacian(tile, i, j);
+        current[0][index] += model.zeta * lap * StaggeredDifference<Right>::grad_y(tile, i, j);
+        current[1][index] += model.zeta * lap * StaggeredDifference<Right>::grad_x(tile, i, j);
     }
 
     __global__ void step(DeviceField field, DeviceCurrent current)
