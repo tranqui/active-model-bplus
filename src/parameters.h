@@ -23,12 +23,27 @@ using Current = Gradient;
 using HostCurrent = HostGradient;
 using DeviceCurrent = DeviceGradient;
 
+/// Grid parameters
+
+namespace kernel
+{
+    // Implementation is on a 2d grid with periodic boundary conditions.
+    // GPU divided into an (tile_rows x tile_cols) tile (blocks) with
+    // a CUDA thread for each tile sharing this memory. Varying the tile size
+    // will potentially improve performance on different hardware - I found
+    // 16x16 was close to optimum on my machine for simulations on a 1024x1024 grid.
+    static constexpr int tile_rows = 2;
+    static constexpr int tile_cols = 2;
+    // We need ghost points for each tile so we can evaluate derivatives at tile borders.
+    static constexpr int num_ghost = 1 + order / 2; // <- minimum for fourth derivatives
+}
+
 // Direction of index offset when derivatives are taken on staggered grids.
 // See StaggeredDerivative in finite_differences.cuh for more info.
 enum StaggeredGridDirection { Left=-1, Right=1 };
 
 
-// Parameters to specific simulations.
+/// Parameters to specific simulations.
 
 struct HostStencilParams
 {
