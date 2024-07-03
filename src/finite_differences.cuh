@@ -130,8 +130,45 @@ namespace kernel
          *                by complete class specialisation.
          */
         template <StaggeredGridDirection Offset, int Order>
-        struct StaggeredDerivative : public BaseDerivative<StaggeredDerivative<Offset, Order>>
+        struct StaggeredDerivative
+            : public BaseDerivative<StaggeredDerivative<Offset, Order>>
         { };
+
+        /// Second-order staggered finite-difference derivatives.
+        template <StaggeredGridDirection Offset>
+        struct StaggeredDerivative<Offset, 2>
+            : public BaseDerivative<StaggeredDerivative<Offset, 2>>
+        {
+            template <typename T>
+            static __device__ inline Scalar grad_x(T&& tile, int i, int j)
+            {
+                if constexpr (Offset == Right)
+                    return stencil.dxInv * (tile[i][j+1] - tile[i][j]);
+                else
+                    return stencil.dxInv * (tile[i][j] - tile[i][j-1]);
+            }
+
+            template <typename T>
+            static __device__ inline Scalar grad_y(T&& tile, int i, int j)
+            {
+                if constexpr (Offset == Right)
+                    return stencil.dyInv * (tile[i+1][j] - tile[i][j]);
+                else
+                    return stencil.dyInv * (tile[i][j] - tile[i-1][j]);
+            }
+
+            // template <typename T>
+            // static __device__ inline Scalar lap_x(T&& tile, int i, int j)
+            // {
+            //     return stencil.dxInv*stencil.dxInv * (tile[i][j+1] - 2*tile[i][j] + tile[i][j-1]);
+            // }
+
+            // template <typename T>
+            // static __device__ inline Scalar lap_y(T&& tile, int i, int j)
+            // {
+            //     return stencil.dyInv*stencil.dyInv * (tile[i+1][j] - 2*tile[i][j] + tile[i-1][j]);
+            // }
+        };
     }
 
     using CentralDifference = details::CentralDerivative<order>;

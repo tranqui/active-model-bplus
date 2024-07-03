@@ -137,8 +137,8 @@ namespace kernel
 
         __syncthreads();
 
-        current[0][index] = -CentralDifference::grad_y(mu, i, j);
-        current[1][index] = -CentralDifference::grad_x(mu, i, j);
+        current[0][index] = -StaggeredDifference<Right>::grad_y(mu, i, j);
+        current[1][index] = -StaggeredDifference<Right>::grad_x(mu, i, j);
 
         current[0][index] += model.zeta * lap * CentralDifference::grad_y(tile, i, j);
         current[1][index] += model.zeta * lap * CentralDifference::grad_x(tile, i, j);
@@ -191,8 +191,8 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = CentralDifference::grad_y(tile[0], i, j)
-                    + CentralDifference::grad_x(tile[1], i, j);
+        Scalar divJ = StaggeredDifference<Left>::grad_y(tile[0], i, j)
+                    + StaggeredDifference<Left>::grad_x(tile[1], i, j);
         field[index] -= stencil.dt * divJ;
     }
 
