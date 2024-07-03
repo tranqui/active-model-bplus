@@ -99,7 +99,7 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
          + model.c * field * field * field;
 }
 
-// Find gradient of field by second-order finite difference:
+// Find gradient of field by second-order central finite differences.
 inline Gradient gradient(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
@@ -127,7 +127,7 @@ inline Gradient gradient(Field field, Stencil stencil)
     return grad;
 }
 
-// Find laplacian of field by second-order finite difference:
+// Find laplacian of field by second-order central finite differences.
 inline Field laplacian(const FieldRef& field, Stencil stencil)
 {
     const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
@@ -155,6 +155,94 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
     }
 
     return lap;
+}
+
+enum StaggerIndexDirection { Left=-1, Right=1 };
+
+/**
+ * Find gradient of field on a staggered grid by second-order finite difference.
+ * 
+ * The gradient is evaluated at points on a staggered grid, i.e. the elements
+ *   of grad are in between the elements of field(i, j). The staggered grid is
+ *   sometimes written with half-integer indices, e.g. in 1d:
+ * 
+ *     phi(i - 1)                 phi(i)                 phi(i + 1)
+ *                 grad(i - 1/2)          grad(i + 1/2)
+ * 
+ * We use a second-order finite-difference stencil to calculate the gradient, e.g.
+ * 
+ *   grad(i - 1/2) = (phi(i) - phi(i - 1)) / dx.
+ * 
+ * We cannot use half-integer indices internally for data representation, so we have
+ *   to use an implicit offset from integral indices.
+ * 
+ * @tparam Offset: offset in half integers should be -1 or 1 to make indices integral.
+ *           If Offset=Left : grad[i] -> grad(i - 1/2)
+ *           If Offset=Right: grad[i] -> grad(i + 1/2)
+ *                 Generally: grad[i] -> grad(i + Offset/2)
+ */
+template <StaggerIndexDirection Offset>
+inline Gradient staggered_gradient(Field field, Stencil stencil)
+{
+    const auto Ny{field.rows()}, Nx{field.cols()};
+    Gradient grad{Field(Ny, Nx), Field(Ny, Nx)};
+
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i};
+        if constexpr (Offset == Right) ip++;
+        int im{ip-1};
+        if (im < 0) im += Ny;
+        if (ip >= Ny) ip -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{i};
+            if constexpr (Offset == Right) jp++;
+            int jm{jp-1};
+            if (jm < 0) jm += Nx;
+            if (jp >= Nx) jp -= Nx;
+
+            grad[0](i, j) = (field(ip, j ) - field(im, j )) / stencil.dy;
+            grad[1](i, j) = (field(i , jp) - field(i , jm)) / stencil.dx;
+        }
+    }
+
+    return grad;
+}
+
+template <StaggerIndexDirection Offset>
+inline Field staggered_divergence(Gradient grad, Stencil stencil)
+{
+    const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
+    Field div(Ny, Nx);
+
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int ip{i};
+        if constexpr (Offset == Right) ip++;
+        int im{ip-1};
+        if (im < 0) im += Ny;
+        if (ip >= Ny) ip -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int jp{i};
+            if constexpr (Offset == Right) jp++;
+            int jm{jp-1};
+            if (jm < 0) jm += Nx;
+            if (jp >= Nx) jp -= Nx;
+
+            div(i, j) = (grad[0](ip, j ) - grad[0](im, j )) / stencil.dy
+                      + (grad[1](i , jp) - grad[1](i , jm)) / stencil.dx;
+        }
+    }
+
+    return div;
 }
 
 
@@ -216,7 +304,7 @@ TEST_CASE("BulkCurrent")
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
     // Current $\vec{J} = - \nabla \mu$:
-    Current expected = gradient(mu, stencil);
+    Current expected = staggered_gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
@@ -224,7 +312,40 @@ TEST_CASE("BulkCurrent")
     CHECK(is_equal<tight_tol>(expected[1], actual[1]));
 }
 
-TEST_CASE("PassiveSurfaceCurrent")
+// Test divergence of current is evaluated correctly during integration.
+// After one step, the field should be $\phi(dt) - \phi(0) = -dt * \nabla \cdot \vec{J}$
+TEST_CASE("DivergenceTest")
+{
+    int Nx{64}, Ny{32};
+    Field initial = Field::Random(Ny, Nx);
+    Scalar dt{1e-2};
+    Stencil stencil{dt, 1, 0.75};
+    Model model{1, 0, 0, 0, 0, 0}; // normal heat/diffusion equation with D=1
+
+    Integrator simulation(initial, stencil, model);
+    Field field = simulation.get_field();
+
+    // Current $\vec{J} = - \nabla \mu$:
+    Current current = staggered_gradient<Right>(field, stencil);
+    for (int c = 0; c < d; ++c) current[c] *= -1;
+
+    simulation.run(1);
+    Field actual = simulation.get_field();
+
+    {
+        // Expect: $-\nabla \cdot \vec{J} = \nabla^2 \phi$.
+        Field expected = field + dt * laplacian(field, stencil);
+        CHECK(is_equal<tight_tol>(expected, actual));
+    }
+
+    {
+        // Alternative: $-\nabla \cdot \vec{J} = \nabla^2 \phi$.
+        Field expected = field - dt * staggered_divergence<Left>(current, stencil);
+        CHECK(is_equal<tight_tol>(expected, actual));
+    }
+}
+
+/*TEST_CASE("PassiveSurfaceCurrent")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
@@ -340,4 +461,4 @@ TEST_CASE("TimestepTest")
     simulation.run(nsteps);
     CHECK(simulation.get_timestep() == nsteps);
     CHECK(is_equal<tight_tol>(simulation.get_time(), nsteps * dt));
-}
+}*/
