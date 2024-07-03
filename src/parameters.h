@@ -40,7 +40,7 @@ namespace kernel
 
 // Direction of index offset when derivatives are taken on staggered grids.
 // See StaggeredDerivative in finite_differences.cuh for more info.
-enum StaggeredGridDirection { Left=-1, Right=1 };
+enum StaggeredGridDirection { Left, Right };
 
 
 /// Parameters to specific simulations.

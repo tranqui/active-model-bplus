@@ -157,29 +157,7 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
     return lap;
 }
 
-/**
- * Find gradient of field on a staggered grid by second-order finite difference.
- * 
- * The gradient is evaluated at points on a staggered grid, i.e. the elements
- *   of grad are in between the elements of field(i, j). The staggered grid is
- *   sometimes written with half-integer indices, e.g. in 1d:
- * 
- *     phi(i - 1)                 phi(i)                 phi(i + 1)
- *                 grad(i - 1/2)          grad(i + 1/2)
- * 
- * We use a second-order finite-difference stencil to calculate the gradient, e.g.
- * 
- *   grad(i - 1/2) = (phi(i) - phi(i - 1)) / dx.
- * 
- * We cannot use half-integer indices internally for data representation, so we have
- *   to use an implicit offset from integral indices.
- * 
- * @tparam Offset: offset in half integers should be -1 or 1 to make indices integral.
- *           If Offset=Left : grad[i] -> grad(i - 1/2)
- *           If Offset=Right: grad[i] -> grad(i + 1/2)
- *                 Generally: grad[i] -> grad(i + Offset/2)
- */
-template <StaggeredGridDirection Offset>
+template <StaggeredGridDirection StaggerDirection>
 inline Gradient staggered_gradient(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
@@ -189,7 +167,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
         int ip{i};
-        if constexpr (Offset == Right) ip++;
+        if constexpr (StaggerDirection == Right) ip++;
         int im{ip-1};
         if (im < 0) im += Ny;
         if (ip >= Ny) ip -= Ny;
@@ -198,7 +176,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
             int jp{j};
-            if constexpr (Offset == Right) jp++;
+            if constexpr (StaggerDirection == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
             if (jp >= Nx) jp -= Nx;
@@ -211,7 +189,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
     return grad;
 }
 
-template <StaggeredGridDirection Offset>
+template <StaggeredGridDirection StaggerDirection>
 inline Field staggered_divergence(Gradient grad, Stencil stencil)
 {
     const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
@@ -221,7 +199,7 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
         int ip{i};
-        if constexpr (Offset == Right) ip++;
+        if constexpr (StaggerDirection == Right) ip++;
         int im{ip-1};
         if (im < 0) im += Ny;
         if (ip >= Ny) ip -= Ny;
@@ -230,7 +208,7 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
             int jp{j};
-            if constexpr (Offset == Right) jp++;
+            if constexpr (StaggerDirection == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
             if (jp >= Nx) jp -= Nx;

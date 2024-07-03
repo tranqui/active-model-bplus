@@ -121,28 +121,28 @@ namespace kernel
          * We cannot use half-integer indices internally for data representation, so we have
          *   to use an implicit offset from integral indices.
          * 
-         * @tparam Offset: offset in half integers should be -1 or 1 to make indices integral.
-         *           If Offset=Left : grad[i] -> grad(i - 1/2)
-         *           If Offset=Right: grad[i] -> grad(i + 1/2)
-         *                 Generally: grad[i] -> grad(i + Offset/2)
+         * @tparam StaggerDirection: direction of staggering of grid from integer indices.
+         *           If StaggerDirection=Left : grad[i] -> grad(i - 1/2)
+         *           If StaggerDirection=Right: grad[i] -> grad(i + 1/2)
+         *                 Generally: grad[i] -> grad(i + StaggerDirection/2)
          * @tparam Order: Derivatives must be implemented for the specific
          *                Order of the numerical approximation, which is done below
          *                by complete class specialisation.
          */
-        template <StaggeredGridDirection Offset, int Order>
+        template <StaggeredGridDirection StaggerDirection, int Order>
         struct StaggeredDerivative
-            : public BaseDerivative<StaggeredDerivative<Offset, Order>>
+            : public BaseDerivative<StaggeredDerivative<StaggerDirection, Order>>
         { };
 
         /// Second-order staggered finite-difference derivatives.
-        template <StaggeredGridDirection Offset>
-        struct StaggeredDerivative<Offset, 2>
-            : public BaseDerivative<StaggeredDerivative<Offset, 2>>
+        template <StaggeredGridDirection StaggerDirection>
+        struct StaggeredDerivative<StaggerDirection, 2>
+            : public BaseDerivative<StaggeredDerivative<StaggerDirection, 2>>
         {
             template <typename T>
             static __device__ inline Scalar grad_x(T&& tile, int i, int j)
             {
-                if constexpr (Offset == Right)
+                if constexpr (StaggerDirection == Right)
                     return stencil.dxInv * (tile[i][j+1] - tile[i][j]);
                 else
                     return stencil.dxInv * (tile[i][j] - tile[i][j-1]);
@@ -151,7 +151,7 @@ namespace kernel
             template <typename T>
             static __device__ inline Scalar grad_y(T&& tile, int i, int j)
             {
-                if constexpr (Offset == Right)
+                if constexpr (StaggerDirection == Right)
                     return stencil.dyInv * (tile[i+1][j] - tile[i][j]);
                 else
                     return stencil.dyInv * (tile[i][j] - tile[i-1][j]);
@@ -172,6 +172,6 @@ namespace kernel
     }
 
     using CentralDifference = details::CentralDerivative<order>;
-    template <StaggeredGridDirection Offset>
-    using StaggeredDifference = details::StaggeredDerivative<Offset, order>;
+    template <StaggeredGridDirection StaggerDirection>
+    using StaggeredDifference = details::StaggeredDerivative<StaggerDirection, order>;
 }
