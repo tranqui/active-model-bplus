@@ -425,9 +425,9 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
 TEST_CASE("SurfaceZetaCurrentTest")
 {
-    int Nx{8}, Ny{8};
+    int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 1};
+    Stencil stencil{1e-2, 1, 1.25};
     Model model{0, 0, 0, 0, 0, 1};
 
     Integrator simulation(initial, stencil, model);
