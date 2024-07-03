@@ -190,6 +190,61 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
 }
 
 template <StaggeredGridDirection StaggerDirection>
+inline Field staggered_laplacian(Field field, Stencil stencil)
+{
+    const auto Ny{field.rows()}, Nx{field.cols()};
+    Field lap(Ny, Nx);
+
+    for (int i = 0; i < Ny; ++i)
+    {
+        // Nearest neighbours in y-direction w/ periodic boundaries:
+        int i3{i}, i4{i+1};
+        if constexpr (StaggerDirection == Right)
+        {
+            i3++;
+            i4++;
+        }
+        int i2{i3-1}, i1{i3-2};
+        if (i1 < 0) i1 += Ny;
+        if (i2 < 0) i2 += Ny;
+        if (i3 >= Ny) i3 -= Ny;
+        if (i4 >= Ny) i4 -= Ny;
+
+        for (int j = 0; j < Nx; ++j)
+        {
+            // Nearest neighbours in x-direction w/ periodic boundaries:
+            int j3{j}, j4{j+1};
+            if constexpr (StaggerDirection == Right)
+            {
+                j3++;
+                j4++;
+            }
+            int j2{j3-1}, j1{j3-2};
+            if (j1 < 0) j1 += Nx;
+            if (j2 < 0) j2 += Nx;
+            if (j3 >= Nx) j3 -= Nx;
+            if (j4 >= Nx) j4 -= Nx;
+
+            Scalar grad_x2 = 0.25 * (field(i2, j3) - field(i2, j1)
+                                   + field(i3, j3) - field(i3, j1)) / stencil.dx;
+            Scalar grad_x3 = 0.25 * (field(i2, j4) - field(i2, j2)
+                                   + field(i3, j4) - field(i3, j2)) / stencil.dx;
+
+            Scalar grad_y2 = 0.25 * (field(i3, j2) - field(i1, j2)
+                                   + field(i3, j3) - field(i1, j3)) / stencil.dy;
+            Scalar grad_y3 = 0.25 * (field(i4, j2) - field(i2, j2)
+                                   + field(i4, j3) - field(i2, j3)) / stencil.dy;
+
+            Scalar lap_x = (grad_x3 - grad_x2) / stencil.dx;
+            Scalar lap_y = (grad_y3 - grad_y2) / stencil.dy;
+            lap(i, j) = lap_x + lap_y;
+        }
+    }
+
+    return lap;
+}
+
+template <StaggeredGridDirection StaggerDirection>
 inline Field staggered_divergence(Gradient grad, Stencil stencil)
 {
     const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
@@ -321,7 +376,7 @@ TEST_CASE("DivergenceTest")
     }
 }
 
-TEST_CASE("PassiveSurfaceCurrent")
+TEST_CASE("SurfaceKappaCurrentTest")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
@@ -341,7 +396,7 @@ TEST_CASE("PassiveSurfaceCurrent")
     CHECK(is_equal<tight_tol>(expected[1], actual[1]));
 }
 
-TEST_CASE("LocalActiveCurrent")
+TEST_CASE("SurfaceLambdaCurrentTest")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
@@ -362,6 +417,32 @@ TEST_CASE("LocalActiveCurrent")
 
     Current expected = staggered_gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected[c] *= -1;
+
+    Current actual = simulation.get_current();
+    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
+    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
+}
+
+TEST_CASE("SurfaceZetaCurrentTest")
+{
+    int Nx{8}, Ny{8};
+    Field initial = Field::Random(Ny, Nx);
+    Stencil stencil{1e-2, 1, 1};
+    Model model{0, 0, 0, 0, 0, 1};
+
+    Integrator simulation(initial, stencil, model);
+    Field field = simulation.get_field();
+
+    // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
+
+    Field lap = staggered_laplacian<Right>(field, stencil);
+    Gradient grad = staggered_gradient<Right>(field, stencil);
+
+    Current expected{Field(Ny, Nx), Field(Ny, Nx)};
+    for (int i = 0; i < Ny; ++i)
+        for (int j = 0; j < Nx; ++j)
+            for (int c = 0; c < d; ++c)
+                expected[c](i,j) = model.zeta * lap(i,j) * grad[c](i,j);
 
     Current actual = simulation.get_current();
     CHECK(is_equal<tight_tol>(expected[0], actual[0]));
