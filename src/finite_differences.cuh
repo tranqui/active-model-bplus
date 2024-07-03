@@ -40,12 +40,12 @@ namespace kernel
 
         /// Derivatives must be specialised for the Order of the numerical approximation.
         template <int Order>
-        struct Derivative : public BaseDerivative<Derivative<Order>> { };
+        struct CentralDerivative : public BaseDerivative<CentralDerivative<Order>> { };
 
 
         /// Second-order central finite-difference derivatives.
         template <>
-        struct Derivative<2> : public BaseDerivative<Derivative<2>>
+        struct CentralDerivative<2> : public BaseDerivative<CentralDerivative<2>>
         {
             template <typename T>
             static __device__ inline Scalar grad_x(T&& tile, int i, int j)
@@ -75,7 +75,7 @@ namespace kernel
 
         /// Fourth-order central finite-difference derivatives.
         template <>
-        struct Derivative<4> : public BaseDerivative<Derivative<4>>
+        struct CentralDerivative<4> : public BaseDerivative<CentralDerivative<4>>
         {
             template <typename T>
             static __device__ inline Scalar grad_x(T&& tile, int i, int j)
@@ -103,5 +103,5 @@ namespace kernel
         };
     }
 
-    using FiniteDifference = details::Derivative<order>;
+    using CentralDifference = details::CentralDerivative<order>;
 }
