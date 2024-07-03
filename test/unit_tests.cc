@@ -343,7 +343,7 @@ TEST_CASE("DivergenceTest")
     }
 }
 
-/*TEST_CASE("PassiveSurfaceCurrent")
+TEST_CASE("PassiveSurfaceCurrent")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
@@ -355,7 +355,7 @@ TEST_CASE("DivergenceTest")
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
     Field mu = -model.kappa * laplacian(field, stencil);
-    Current expected = gradient(mu, stencil);
+    Current expected = staggered_gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
@@ -382,7 +382,7 @@ TEST_CASE("LocalActiveCurrent")
             for (int c = 0; c < d; ++c)
                 mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
 
-    Current expected = gradient(mu, stencil);
+    Current expected = staggered_gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected[c] *= -1;
 
     Current actual = simulation.get_current();
@@ -397,7 +397,7 @@ TEST_CASE("ConservationTest")
     initial -= Field::Constant(Ny, Nx, initial.mean());
 
     constexpr int nsteps = 1000;
-    Stencil stencil{1e-1, 1, 0.75};
+    Stencil stencil{1e-2, 1, 1.25};
 
     Field previous;
     bool first{true};
@@ -429,13 +429,13 @@ TEST_CASE("PhaseSeparationTest")
     Field initial = 0.1 * Field::Random(Ny, Nx);
     initial -= Field::Constant(Ny, Nx, initial.mean());
 
-    Stencil stencil{1e-1, 1, 0.75};
+    Stencil stencil{1e-2, 1, 1.25};
     // Parameters for phase separation with binodal at \phi = \pm 1.
     Model model{-0.25, 0, 0.25, 1, 0, 0};
 
     Integrator simulation(initial, stencil, model);
 
-    constexpr int nsteps = 10000;
+    constexpr int nsteps = 100000;
     simulation.run(nsteps);
     Field field = simulation.get_field();
 
@@ -459,4 +459,4 @@ TEST_CASE("TimestepTest")
     simulation.run(nsteps);
     CHECK(simulation.get_timestep() == nsteps);
     CHECK(is_equal<tight_tol>(simulation.get_time(), nsteps * dt));
-}*/
+}
