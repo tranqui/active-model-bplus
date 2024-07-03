@@ -23,6 +23,10 @@ using Current = Gradient;
 using HostCurrent = HostGradient;
 using DeviceCurrent = DeviceGradient;
 
+// Direction of index offset when derivatives are taken on staggered grids.
+// See StaggeredDerivative in finite_differences.cuh for more info.
+enum StaggeredGridDirection { Left=-1, Right=1 };
+
 
 // Parameters to specific simulations.
 

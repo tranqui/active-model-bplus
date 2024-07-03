@@ -38,7 +38,13 @@ namespace kernel
             }
         };
 
-        /// Derivatives must be specialised for the Order of the numerical approximation.
+        /**
+         * Base for central derivative stencils.
+         * 
+         * @tparam Order: Derivatives must be implemented for the specific
+         *                Order of the numerical approximation, which is done below
+         *                by complete class specialisation.
+         */
         template <int Order>
         struct CentralDerivative : public BaseDerivative<CentralDerivative<Order>> { };
 
@@ -101,7 +107,34 @@ namespace kernel
                 return stencil.dyInv*stencil.dyInv * (-tile[i+2][j] + 16*tile[i+1][j] - 30*tile[i][j] + 16*tile[i-1][j] - tile[i-2][j]) / 12;
             }
         };
+
+        /**
+         * Base for derivatives on a staggered grid.
+         * 
+         * Elements of derivatives are in between those of the source field.
+         *   The staggered grid is sometimes written with half-integer
+         *   indices, e.g. in 1d the gradient with field phi:
+         * 
+         *     phi(i - 1)                 phi(i)                 phi(i + 1)
+         *                 grad(i - 1/2)          grad(i + 1/2)
+         * 
+         * We cannot use half-integer indices internally for data representation, so we have
+         *   to use an implicit offset from integral indices.
+         * 
+         * @tparam Offset: offset in half integers should be -1 or 1 to make indices integral.
+         *           If Offset=Left : grad[i] -> grad(i - 1/2)
+         *           If Offset=Right: grad[i] -> grad(i + 1/2)
+         *                 Generally: grad[i] -> grad(i + Offset/2)
+         * @tparam Order: Derivatives must be implemented for the specific
+         *                Order of the numerical approximation, which is done below
+         *                by complete class specialisation.
+         */
+        template <StaggeredGridDirection Offset, int Order>
+        struct StaggeredDerivative : public BaseDerivative<StaggeredDerivative<Offset, Order>>
+        { };
     }
 
     using CentralDifference = details::CentralDerivative<order>;
+    template <StaggeredGridDirection Offset>
+    using StaggeredDifference = details::StaggeredDerivative<Offset, order>;
 }

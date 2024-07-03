@@ -157,8 +157,6 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
     return lap;
 }
 
-enum StaggerIndexDirection { Left=-1, Right=1 };
-
 /**
  * Find gradient of field on a staggered grid by second-order finite difference.
  * 
@@ -181,7 +179,7 @@ enum StaggerIndexDirection { Left=-1, Right=1 };
  *           If Offset=Right: grad[i] -> grad(i + 1/2)
  *                 Generally: grad[i] -> grad(i + Offset/2)
  */
-template <StaggerIndexDirection Offset>
+template <StaggeredGridDirection Offset>
 inline Gradient staggered_gradient(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
@@ -213,7 +211,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
     return grad;
 }
 
-template <StaggerIndexDirection Offset>
+template <StaggeredGridDirection Offset>
 inline Field staggered_divergence(Gradient grad, Stencil stencil)
 {
     const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
