@@ -197,7 +197,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
         for (int j = 0; j < Nx; ++j)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
-            int jp{i};
+            int jp{j};
             if constexpr (Offset == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
@@ -229,7 +229,7 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
         for (int j = 0; j < Nx; ++j)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
-            int jp{i};
+            int jp{j};
             if constexpr (Offset == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
