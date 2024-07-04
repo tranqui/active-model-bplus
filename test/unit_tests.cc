@@ -100,11 +100,12 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
          + model.c * field * field * field;
 }
 
-// Find gradient of field by second-order central finite differences.
-inline Gradient gradient(Field field, Stencil stencil)
+// Loop through field and generate local stencil for central finite
+// difference calculations.
+template <typename Operation>
+inline void apply_operation(Field field, Operation operation)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
-    Gradient grad{Field(Ny, Nx), Field(Ny, Nx)};
     constexpr std::size_t stencil_size = 1 + order;
 
     for (int i = 0; i < Ny; ++i)
@@ -137,59 +138,42 @@ inline Gradient gradient(Field field, Stencil stencil)
                 stencil_x[k] = field(i, ix[k]);
             }
 
-            grad[0](i, j) = finite_difference::first(stencil_y) / stencil.dy;
-            grad[1](i, j) = finite_difference::first(stencil_x) / stencil.dx;
+            operation(i, j, stencil_y, stencil_x);
         }
     }
-
-    return grad;
 }
 
-// Find laplacian of field by second-order central finite differences.
+// Find gradient of field by central finite differences.
+inline Gradient gradient(Field field, Stencil stencil)
+{
+    const auto Ny{field.rows()}, Nx{field.cols()};
+    Gradient gradient{Field(Ny, Nx), Field(Ny, Nx)};
+
+    auto grad = [&](int i, int j, auto stencil_y, auto stencil_x)
+    {
+        gradient[0](i, j) = finite_difference::first(stencil_y) / stencil.dy;
+        gradient[1](i, j) = finite_difference::first(stencil_x) / stencil.dx;
+    };
+    apply_operation(field, grad);
+
+    return gradient;
+}
+
+// Find laplacian of field by central finite differences.
 inline Field laplacian(const FieldRef& field, Stencil stencil)
 {
     const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
     const auto Ny{field.rows()}, Nx{field.cols()};
-    Field lap{Ny, Nx};
-    constexpr std::size_t stencil_size = 1 + order;
+    Field laplacian{Ny, Nx};
 
-    for (int i = 0; i < Ny; ++i)
+    auto lap = [&](int i, int j, auto stencil_y, auto stencil_x)
     {
-        // Nearest neighbours in y-direction w/ periodic boundaries:
-        std::array<int, stencil_size> iy;
-        for (int k = 0; k < stencil_size; ++k)
-        {
-            iy[k] = i - order + k + 1;
-            if (iy[k] < 0) iy[k] += Ny;
-            if (iy[k] >= Ny) iy[k] -= Ny;
-        }
+        laplacian(i, j) = dyInv*dyInv * finite_difference::second(stencil_y)
+                        + dxInv*dxInv * finite_difference::second(stencil_x);
+    };
+    apply_operation(field, lap);
 
-        for (int j = 0; j < Nx; ++j)
-        {
-            // Nearest neighbours in x-direction w/ periodic boundaries:
-            std::array<int, stencil_size> ix;
-            for (int k = 0; k < stencil_size; ++k)
-            {
-                ix[k] = j - order + k + 1;
-                if (ix[k] < 0) ix[k] += Nx;
-                if (ix[k] >= Nx) ix[k] -= Nx;
-            }
-
-            // Retrieve field points indexed by stencil.
-            std::array<Scalar, stencil_size> stencil_y, stencil_x;
-            for (int k = 0; k < stencil_size; ++k)
-            {
-                stencil_y[k] = field(iy[k], j);
-                stencil_x[k] = field(i, ix[k]);
-            }
-
-            Scalar lap_y = dyInv*dyInv * finite_difference::second(stencil_y);
-            Scalar lap_x = dxInv*dxInv * finite_difference::second(stencil_x);
-            lap(i, j) = lap_x + lap_y;
-        }
-    }
-
-    return lap;
+    return laplacian;
 }
 
 template <StaggeredGridDirection StaggerDirection>
