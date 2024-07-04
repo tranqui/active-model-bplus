@@ -280,6 +280,19 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
 /// The unit tests.
 
 
+// This is really a test that we have set up the finite differences correctly
+// above: a preliminary test of the testing framework.
+TEST_CASE("FiniteDifferencesTest")
+{
+    int Nx{64}, Ny{32};
+    Stencil stencil{1e-2, 1, 0.75};
+
+    Field field = Field::Random(Ny, Nx);
+    Gradient grad = staggered_gradient<Right>(field, stencil);
+    Field lap = laplacian(field, stencil);
+    CHECK(is_equal<tight_tol>(lap, staggered_divergence<Left>(grad, stencil)));
+}
+
 TEST_CASE("Constructor")
 {
     int Nx{64}, Ny{32};
@@ -318,11 +331,12 @@ TEST_CASE("MoveConstructor")
     kernel::throw_errors();
 }
 
-TEST_CASE("BulkCurrent")
+TEST_CASE("BulkCurrentTest")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 0.75};
+    Scalar dt{1e-2};
+    Stencil stencil{dt, 1, 0.75};
     Model model{1, 2, 3, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
@@ -335,44 +349,26 @@ TEST_CASE("BulkCurrent")
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
     // Current $\vec{J} = - \nabla \mu$:
-    Current expected = staggered_gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected[c] *= -1;
+    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
-    Current actual = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
-    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
-}
-
-// Test divergence of current is evaluated correctly during integration.
-// After one step, the field should be $\phi(dt) - \phi(0) = -dt * \nabla \cdot \vec{J}$
-TEST_CASE("DivergenceTest")
-{
-    int Nx{64}, Ny{32};
-    Field initial = Field::Random(Ny, Nx);
-    Scalar dt{1e-2};
-    Stencil stencil{dt, 1, 0.75};
-    Model model{1, 0, 0, 0, 0, 0}; // normal heat/diffusion equation with D=1
-
-    Integrator simulation(initial, stencil, model);
-    Field field = simulation.get_field();
-
-    // Current $\vec{J} = - \nabla \mu$:
-    Current current = staggered_gradient<Right>(field, stencil);
-    for (int c = 0; c < d; ++c) current[c] *= -1;
+    Current actual_J = simulation.get_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
 
     simulation.run(1);
-    Field actual = simulation.get_field();
+    Field actual_divJ = -(simulation.get_field() - field) / dt;
 
     {
-        // Expect: $-\nabla \cdot \vec{J} = \nabla^2 \phi$.
-        Field expected = field + dt * laplacian(field, stencil);
-        CHECK(is_equal<tight_tol>(expected, actual));
+        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
+        Field expected_divJ = -laplacian(mu, stencil);
+        CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
     }
 
     {
-        // Alternative: $-\nabla \cdot \vec{J} = \nabla^2 \phi$.
-        Field expected = field - dt * staggered_divergence<Left>(current, stencil);
-        CHECK(is_equal<tight_tol>(expected, actual));
+        // Alternative: $-\nabla \cdot \vec{J}$ directly.
+        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
     }
 }
 
@@ -380,7 +376,8 @@ TEST_CASE("SurfaceKappaCurrentTest")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 0.75};
+    Scalar dt{1e-2};
+    Stencil stencil{dt, 1, 0.75};
     Model model{0, 0, 0, 1, 0, 0};
 
     Integrator simulation(initial, stencil, model);
@@ -388,19 +385,35 @@ TEST_CASE("SurfaceKappaCurrentTest")
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
     Field mu = -model.kappa * laplacian(field, stencil);
-    Current expected = staggered_gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected[c] *= -1;
+    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
-    Current actual = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
-    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
+    Current actual_J = simulation.get_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    simulation.run(1);
+    Field actual_divJ = -(simulation.get_field() - field) / dt;
+
+    {
+        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
+        Field expected_divJ = -laplacian(mu, stencil);
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    }
+
+    {
+        // Alternative: $-\nabla \cdot \vec{J}$ directly.
+        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    }
 }
 
 TEST_CASE("SurfaceLambdaCurrentTest")
 {
     int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 0.75};
+    Scalar dt{1e-2};
+    Stencil stencil{dt, 1, 0.75};
     Model model{0, 0, 0, 0, 1, 0};
 
     Integrator simulation(initial, stencil, model);
@@ -415,12 +428,27 @@ TEST_CASE("SurfaceLambdaCurrentTest")
             for (int c = 0; c < d; ++c)
                 mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
 
-    Current expected = staggered_gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected[c] *= -1;
+    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
-    Current actual = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
-    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
+    Current actual_J = simulation.get_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    simulation.run(1);
+    Field actual_divJ = -(simulation.get_field() - field) / dt;
+
+    {
+        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
+        Field expected_divJ = -laplacian(mu, stencil);
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    }
+
+    {
+        // Alternative: $-\nabla \cdot \vec{J}$ directly.
+        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    }
 }
 
 TEST_CASE("SurfaceZetaCurrentTest")
