@@ -453,9 +453,11 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
 TEST_CASE("SurfaceZetaCurrentTest")
 {
-    int Nx{64}, Ny{32};
+    // int Nx{64}, Ny{32};
+    int Nx{8}, Ny{8};
     Field initial = Field::Random(Ny, Nx);
-    Stencil stencil{1e-2, 1, 1.25};
+    Scalar dt{1e-2};
+    Stencil stencil{dt, 1, 1.25};
     Model model{0, 0, 0, 0, 0, 1};
 
     Integrator simulation(initial, stencil, model);
@@ -466,15 +468,45 @@ TEST_CASE("SurfaceZetaCurrentTest")
     Field lap = staggered_laplacian<Right>(field, stencil);
     Gradient grad = staggered_gradient<Right>(field, stencil);
 
-    Current expected{Field(Ny, Nx), Field(Ny, Nx)};
+    Current expected_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
             for (int c = 0; c < d; ++c)
-                expected[c](i,j) = model.zeta * lap(i,j) * grad[c](i,j);
+                expected_J[c](i,j) = model.zeta * lap(i,j) * grad[c](i,j);
 
-    Current actual = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected[0], actual[0]));
-    CHECK(is_equal<tight_tol>(expected[1], actual[1]));
+    Current actual_J = simulation.get_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    simulation.run(1);
+    Field actual_divJ = -(simulation.get_field() - field) / dt;
+
+    {
+        // Expect: $\nabla \cdot \vec{J} = \nabla(\nabla^2\phi) \cdot \nabla \phi + (\nabla^2 \phi)^2$:
+
+        Field lap = laplacian(field, stencil);
+        Gradient grad_phi = gradient(field, stencil);
+        Gradient grad_lap = gradient(lap, stencil);
+
+        Field expected_divJ(Ny, Nx);
+        for (int i = 0; i < Ny; ++i)
+            for (int j = 0; j < Nx; ++j)
+            {
+                expected_divJ(i,j) = model.zeta * lap(i,j) * lap(i,j);
+                for (int c = 0; c < d; ++c)
+                    expected_divJ(i,j) += model.zeta * grad_lap[c](i,j) * grad_phi[c](i,j);
+            }
+
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+        std::cout << actual_divJ << std::endl << std::endl;
+        std::cout << expected_divJ << std::endl << std::endl;
+    }
+
+    {
+        // Alternative: $-\nabla \cdot \vec{J}$ directly.
+        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    }
 }
 
 TEST_CASE("ConservationTest")
