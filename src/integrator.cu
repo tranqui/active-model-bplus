@@ -1,7 +1,7 @@
 #include "integrator.h"
 #include "parameters.cuh"
 #include "foreach.h"
-#include "finite_differences.cuh"
+#include "finite_difference.cuh"
 
 #include <cuda.h>
 #include <cuda_runtime.h>

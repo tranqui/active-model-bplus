@@ -1,6 +1,7 @@
 #pragma once
 #include "integrator.h"
 #include "parameters.cuh"
+#include "finite_difference.h"
 
 
 namespace kernel

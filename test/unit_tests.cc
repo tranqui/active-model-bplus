@@ -2,6 +2,7 @@
 #include <catch2/catch.hpp>
 #include "integrator.h"
 #include "foreach.h"
+#include "finite_difference.h"
 
 
 // Numerical tolerance for equality with numerical calculations.
@@ -104,23 +105,40 @@ inline Gradient gradient(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
     Gradient grad{Field(Ny, Nx), Field(Ny, Nx)};
+    constexpr std::size_t stencil_size = 1 + order;
 
     for (int i = 0; i < Ny; ++i)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
-        int ip{i+1}, im{i-1};
-        if (im < 0) im += Ny;
-        if (ip >= Ny) ip -= Ny;
+        std::array<int, stencil_size> iy;
+        for (int k = 0; k < stencil_size; ++k)
+        {
+            iy[k] = i - order + k + 1;
+            if (iy[k] < 0) iy[k] += Ny;
+            if (iy[k] >= Ny) iy[k] -= Ny;
+        }
 
         for (int j = 0; j < Nx; ++j)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
-            int jp{j+1}, jm{j-1};
-            if (jm < 0) jm += Nx;
-            if (jp >= Nx) jp -= Nx;
+            std::array<int, stencil_size> ix;
+            for (int k = 0; k < stencil_size; ++k)
+            {
+                ix[k] = j - order + k + 1;
+                if (ix[k] < 0) ix[k] += Nx;
+                if (ix[k] >= Nx) ix[k] -= Nx;
+            }
 
-            grad[0](i, j) = 0.5 * (field(ip, j ) - field(im, j )) / stencil.dy;
-            grad[1](i, j) = 0.5 * (field(i , jp) - field(i , jm)) / stencil.dx;
+            // Retrieve field points indexed by stencil.
+            std::array<Scalar, stencil_size> stencil_y, stencil_x;
+            for (int k = 0; k < stencil_size; ++k)
+            {
+                stencil_y[k] = field(iy[k], j);
+                stencil_x[k] = field(i, ix[k]);
+            }
+
+            grad[0](i, j) = finite_difference::first(stencil_y) / stencil.dy;
+            grad[1](i, j) = finite_difference::first(stencil_x) / stencil.dx;
         }
     }
 
@@ -133,24 +151,41 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
     const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
     const auto Ny{field.rows()}, Nx{field.cols()};
     Field lap{Ny, Nx};
+    constexpr std::size_t stencil_size = 1 + order;
 
     for (int i = 0; i < Ny; ++i)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
-        int ip{i+1}, im{i-1};
-        if (im < 0) im += Ny;
-        if (ip >= Ny) ip -= Ny;
+        std::array<int, stencil_size> iy;
+        for (int k = 0; k < stencil_size; ++k)
+        {
+            iy[k] = i - order + k + 1;
+            if (iy[k] < 0) iy[k] += Ny;
+            if (iy[k] >= Ny) iy[k] -= Ny;
+        }
 
         for (int j = 0; j < Nx; ++j)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
-            int jp{j+1}, jm{j-1};
-            if (jm < 0) jm += Nx;
-            if (jp >= Nx) jp -= Nx;
+            std::array<int, stencil_size> ix;
+            for (int k = 0; k < stencil_size; ++k)
+            {
+                ix[k] = j - order + k + 1;
+                if (ix[k] < 0) ix[k] += Nx;
+                if (ix[k] >= Nx) ix[k] -= Nx;
+            }
 
-            lap(i, j) =   dyInv*dyInv * (field(ip,j) + field(im,j))
-                        + dxInv*dxInv * (field(i,jp) + field(i,jm))
-                        - 2*(dxInv*dxInv + dyInv*dyInv) * field(i,j);
+            // Retrieve field points indexed by stencil.
+            std::array<Scalar, stencil_size> stencil_y, stencil_x;
+            for (int k = 0; k < stencil_size; ++k)
+            {
+                stencil_y[k] = field(iy[k], j);
+                stencil_x[k] = field(i, ix[k]);
+            }
+
+            Scalar lap_y = dyInv*dyInv * finite_difference::second(stencil_y);
+            Scalar lap_x = dxInv*dxInv * finite_difference::second(stencil_x);
+            lap(i, j) = lap_x + lap_y;
         }
     }
 
