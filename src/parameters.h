@@ -1,29 +1,10 @@
 #pragma once
-#include <Eigen/Eigen>
+#include "math_primitives.h"
 
 
-/// Basic constants and data types.
+/// Compile-time parameters affecting algorithm implementation.
 
-static constexpr int d = 2;      // number of spatial dimensions
-using Scalar = double;           // type for numeric data
-static constexpr int order = 2;  // order of finite-difference calculations
-
-using Field = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-using FieldRef = Eigen::Ref<const Field>;
-
-using HostField = Field;
-using HostFieldRef = FieldRef;
-using DeviceField = Scalar*;
-
-using Gradient = std::array<Field, d>;
-using HostGradient = Gradient;
-using DeviceGradient = std::array<Scalar*, d>;
-
-using Current = Gradient;
-using HostCurrent = HostGradient;
-using DeviceCurrent = DeviceGradient;
-
-/// Grid parameters
+static constexpr int order = 2; // order of error in finite-difference approximations
 
 namespace kernel
 {
@@ -38,12 +19,8 @@ namespace kernel
     static constexpr int num_ghost = 1 + order / 2; // <- minimum for fourth derivatives
 }
 
-// Direction of index offset when derivatives are taken on staggered grids.
-// See StaggeredDerivative in finite_differences.cuh for more info.
-enum StaggeredGridDirection { Left, Right };
 
-
-/// Parameters to specific simulations.
+/// Run-time parameters to specific simulations.
 
 struct HostStencilParams
 {
@@ -100,4 +77,3 @@ struct ActiveModelBPlusParams
 
 using Stencil = HostStencilParams;
 using Model = ActiveModelBPlusParams;
-
