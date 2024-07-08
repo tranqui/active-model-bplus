@@ -67,26 +67,41 @@ foreach(SO_FILE ${STATIC_OBJECTS})
     COMMENT "Copying ${SO_FILE} to module")
 endforeach()
 
-# Unit test executable
-add_executable(unit_tests test/unit_tests.cc)
-add_dependencies(unit_tests integrator)
-target_link_libraries(unit_tests integrator-kernel)
-target_include_directories(unit_tests PRIVATE
+# Unit test executables
+add_executable(test_finite_differences test/test_finite_differences.cc)
+target_include_directories(test_finite_differences PRIVATE
+                           ${CMAKE_CURRENT_SOURCE_DIR}/src
+                           ${EIGEN3_INCLUDE_DIRS}
+                           ${Catch2_INCLUDE_DIRS})
+
+add_executable(test_integrator test/test_integrator.cc)
+add_dependencies(test_integrator integrator)
+target_link_libraries(test_integrator integrator-kernel)
+target_include_directories(test_integrator PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${EIGEN3_INCLUDE_DIRS}
                            ${Catch2_INCLUDE_DIRS})
 
 # Register unit tests
 enable_testing()
-add_test(NAME unit_tests COMMAND unit_tests)
+add_test(NAME test_finite_differences COMMAND test_finite_differences)
+add_test(NAME test_integrator COMMAND test_integrator)
 
 # Run unit tests at end of build process
 add_custom_command(
-    TARGET unit_tests POST_BUILD
+    TARGET test_finite_differences POST_BUILD
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS unit_tests
+    DEPENDS test_finite_differences
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running unit tests"
+    COMMENT "Running unit tests of finite difference scheme"
+)
+
+add_custom_command(
+    TARGET test_integrator POST_BUILD
+    COMMAND ${CMAKE_CTEST_COMMAND} --verbose
+    DEPENDS test_integrator
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running unit tests on integrator"
 )
 
 # Tests to check pybind11 bindings for the python front end
@@ -95,7 +110,7 @@ add_test(NAME test_bindings
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
 )
 add_custom_command(
-    TARGET unit_tests POST_BUILD
+    TARGET test_integrator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_BINARY_DIR}/activemodelbplus ${Python_EXECUTABLE} -m pytest
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
     COMMENT "Testing python bindings"
