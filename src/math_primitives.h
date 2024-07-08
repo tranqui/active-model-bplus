@@ -21,4 +21,4 @@ using DeviceCurrent = DeviceGradient;
 
 // Direction of index offset when derivatives are taken on staggered grids.
 // See `StaggeredDerivative` in finite_differences.cuh for more info.
-enum StaggeredGridDirection { Left, Central, Right };
+enum StaggerGrid { Left, Central, Right };

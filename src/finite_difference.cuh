@@ -122,28 +122,27 @@ namespace kernel
          * We cannot use half-integer indices internally for data representation, so we have
          *   to use an implicit offset from integral indices.
          * 
-         * @tparam StaggerDirection: direction of staggering of grid from integer indices.
-         *           If StaggerDirection=Left : grad[i] -> grad(i - 1/2)
-         *           If StaggerDirection=Right: grad[i] -> grad(i + 1/2)
-         *                 Generally: grad[i] -> grad(i + StaggerDirection/2)
+         * @tparam Stagger: direction of staggering of grid from integer indices.
+         *           If Stagger=Left : grad[i] -> grad(i - 1/2)
+         *           If Stagger=Right: grad[i] -> grad(i + 1/2)
          * @tparam Order: Derivatives must be implemented for the specific
          *                Order of the numerical approximation, which is done below
          *                by complete class specialisation.
          */
-        template <StaggeredGridDirection StaggerDirection, int Order>
+        template <StaggerGrid Stagger, int Order>
         struct StaggeredDerivative
-            : public BaseDerivative<StaggeredDerivative<StaggerDirection, Order>>
+            : public BaseDerivative<StaggeredDerivative<Stagger, Order>>
         { };
 
         /// Second-order staggered finite-difference derivatives.
-        template <StaggeredGridDirection StaggerDirection>
-        struct StaggeredDerivative<StaggerDirection, 2>
-            : public BaseDerivative<StaggeredDerivative<StaggerDirection, 2>>
+        template <StaggerGrid Stagger>
+        struct StaggeredDerivative<Stagger, 2>
+            : public BaseDerivative<StaggeredDerivative<Stagger, 2>>
         {
             template <typename T>
             static __device__ inline Scalar grad_x(T&& tile, int i, int j)
             {
-                if constexpr (StaggerDirection == Right)
+                if constexpr (Stagger == Right)
                     return stencil.dxInv * (tile[i][j+1] - tile[i][j]);
                 else
                     return stencil.dxInv * (tile[i][j] - tile[i][j-1]);
@@ -152,7 +151,7 @@ namespace kernel
             template <typename T>
             static __device__ inline Scalar grad_y(T&& tile, int i, int j)
             {
-                if constexpr (StaggerDirection == Right)
+                if constexpr (Stagger == Right)
                     return stencil.dyInv * (tile[i+1][j] - tile[i][j]);
                 else
                     return stencil.dyInv * (tile[i][j] - tile[i-1][j]);
@@ -161,7 +160,7 @@ namespace kernel
             template <typename T>
             static __device__ inline Scalar lap_x(T&& tile, int i, int j)
             {
-                if constexpr (StaggerDirection == Right)
+                if constexpr (Stagger == Right)
                     return 0.25 * stencil.dxInv * stencil.dxInv * (
                         (tile[i][j+2] - tile[i][ j ] + tile[i+1][j+2] - tile[i+1][ j ])
                       - (tile[i][j+1] - tile[i][j-1] + tile[i+1][j+1] - tile[i+1][j-1]) );
@@ -174,7 +173,7 @@ namespace kernel
             template <typename T>
             static __device__ inline Scalar lap_y(T&& tile, int i, int j)
             {
-                if constexpr (StaggerDirection == Right)
+                if constexpr (Stagger == Right)
                     return 0.25 * stencil.dyInv * stencil.dyInv * (
                         (tile[i+2][j] - tile[ i ][j] + tile[i+2][j+1] - tile[ i ][j+1])
                       - (tile[i+1][j] - tile[i-1][j] + tile[i+1][j+1] - tile[i-1][j+1]) );
@@ -187,6 +186,6 @@ namespace kernel
     }
 
     using CentralDifference = details::CentralDerivative<order>;
-    template <StaggeredGridDirection StaggerDirection>
-    using StaggeredDifference = details::StaggeredDerivative<StaggerDirection, order>;
+    template <StaggerGrid Stagger>
+    using StaggeredDifference = details::StaggeredDerivative<Stagger, order>;
 }

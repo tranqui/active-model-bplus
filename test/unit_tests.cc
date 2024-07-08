@@ -4,6 +4,8 @@
 #include "foreach.h"
 #include "finite_difference.h"
 
+using namespace finite_difference;
+
 
 // Numerical tolerance for equality with numerical calculations.
 static constexpr Scalar tight_tol = 1e-12;
@@ -151,8 +153,8 @@ inline Gradient gradient(Field field, Stencil stencil)
 
     auto grad = [&](int i, int j, auto stencil_y, auto stencil_x)
     {
-        gradient[0](i, j) = finite_difference::first(stencil_y) / stencil.dy;
-        gradient[1](i, j) = finite_difference::first(stencil_x) / stencil.dx;
+        gradient[0](i, j) = first(stencil_y) / stencil.dy;
+        gradient[1](i, j) = first(stencil_x) / stencil.dx;
     };
     apply_operation(field, grad);
 
@@ -168,15 +170,37 @@ inline Field laplacian(const FieldRef& field, Stencil stencil)
 
     auto lap = [&](int i, int j, auto stencil_y, auto stencil_x)
     {
-        laplacian(i, j) = dyInv*dyInv * finite_difference::second(stencil_y)
-                        + dxInv*dxInv * finite_difference::second(stencil_x);
+        laplacian(i, j) = dyInv*dyInv * second(stencil_y)
+                        + dxInv*dxInv * second(stencil_x);
     };
     apply_operation(field, lap);
 
     return laplacian;
 }
 
-template <StaggeredGridDirection StaggerDirection>
+// Find divergence of vector field by central finite differences.
+inline Field divergence(const Gradient& grad, Stencil stencil)
+{
+    const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
+    const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
+    Field divergence = Field::Zero(Ny, Nx);
+
+    auto div_y = [&](int i, int j, auto stencil_y, auto stencil_x)
+    {
+        divergence(i, j) += dyInv * first(stencil_y);
+    };
+    auto div_x = [&](int i, int j, auto stencil_y, auto stencil_x)
+    {
+        divergence(i, j) += dxInv * first(stencil_x);
+    };
+
+    apply_operation(grad[0], div_y);
+    apply_operation(grad[1], div_x);
+
+    return divergence;
+}
+
+template <StaggerGrid Stagger>
 inline Gradient staggered_gradient(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
@@ -186,7 +210,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
         int ip{i};
-        if constexpr (StaggerDirection == Right) ip++;
+        if constexpr (Stagger == Right) ip++;
         int im{ip-1};
         if (im < 0) im += Ny;
         if (ip >= Ny) ip -= Ny;
@@ -195,7 +219,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
             int jp{j};
-            if constexpr (StaggerDirection == Right) jp++;
+            if constexpr (Stagger == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
             if (jp >= Nx) jp -= Nx;
@@ -208,7 +232,7 @@ inline Gradient staggered_gradient(Field field, Stencil stencil)
     return grad;
 }
 
-template <StaggeredGridDirection StaggerDirection>
+template <StaggerGrid Stagger>
 inline Field staggered_laplacian(Field field, Stencil stencil)
 {
     const auto Ny{field.rows()}, Nx{field.cols()};
@@ -218,7 +242,7 @@ inline Field staggered_laplacian(Field field, Stencil stencil)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
         int i3{i}, i4{i+1};
-        if constexpr (StaggerDirection == Right)
+        if constexpr (Stagger == Right)
         {
             i3++;
             i4++;
@@ -233,7 +257,7 @@ inline Field staggered_laplacian(Field field, Stencil stencil)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
             int j3{j}, j4{j+1};
-            if constexpr (StaggerDirection == Right)
+            if constexpr (Stagger == Right)
             {
                 j3++;
                 j4++;
@@ -263,7 +287,7 @@ inline Field staggered_laplacian(Field field, Stencil stencil)
     return lap;
 }
 
-template <StaggeredGridDirection StaggerDirection>
+template <StaggerGrid Stagger>
 inline Field staggered_divergence(Gradient grad, Stencil stencil)
 {
     const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
@@ -273,7 +297,7 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
     {
         // Nearest neighbours in y-direction w/ periodic boundaries:
         int ip{i};
-        if constexpr (StaggerDirection == Right) ip++;
+        if constexpr (Stagger == Right) ip++;
         int im{ip-1};
         if (im < 0) im += Ny;
         if (ip >= Ny) ip -= Ny;
@@ -282,7 +306,7 @@ inline Field staggered_divergence(Gradient grad, Stencil stencil)
         {
             // Nearest neighbours in x-direction w/ periodic boundaries:
             int jp{j};
-            if constexpr (StaggerDirection == Right) jp++;
+            if constexpr (Stagger == Right) jp++;
             int jm{jp-1};
             if (jm < 0) jm += Nx;
             if (jp >= Nx) jp -= Nx;
@@ -306,10 +330,45 @@ TEST_CASE("FiniteDifferencesTest")
     int Nx{64}, Ny{32};
     Stencil stencil{1e-2, 1, 0.75};
 
+    // Check $\nabla \cdot (\nabla \phi) = \nabla^2 \phi.$
+    {
     Field field = Field::Random(Ny, Nx);
     Gradient grad = staggered_gradient<Right>(field, stencil);
     Field lap = laplacian(field, stencil);
     CHECK(is_equal<tight_tol>(lap, staggered_divergence<Left>(grad, stencil)));
+    }
+
+    // Check derivatives of known analytic functions
+
+    // $\phi = x$:
+    {
+        Field field(Ny, Nx);
+        for (int i = 0; i < Ny; ++i)
+            for (int j = 0; j < Nx; ++j)
+                field(i, j) = j;
+
+        Gradient grad = gradient(field, stencil);
+        Field lap = laplacian(field, stencil);
+
+        CHECK(is_equal<tight_tol>(lap(Ny/2, Nx/2), 0));
+        CHECK(is_equal<tight_tol>(grad[0](Ny/2, Nx/2), 0));
+        CHECK(is_equal<tight_tol>(grad[1](Ny/2, Nx/2), 1));
+    }
+
+    // $\phi = (x^2) / 2$:
+    {
+        Field field(Ny, Nx);
+        for (int i = 0; i < Ny; ++i)
+            for (int j = 0; j < Nx; ++j)
+                field(i, j) = 0.5 * j*j;
+
+        Gradient grad = gradient(field, stencil);
+        Field lap = laplacian(field, stencil);
+
+        CHECK(is_equal<tight_tol>(lap(Ny/2, Nx/2), 1));
+        CHECK(is_equal<tight_tol>(grad[0](Ny/2, Nx/2), 0));
+        CHECK(is_equal<tight_tol>(grad[1](Ny/2, Nx/2), Nx/2));
+    }
 }
 
 TEST_CASE("Constructor")
