@@ -81,8 +81,8 @@ namespace finite_difference
         };
 
         // Coefficients for left stagger are the same as for right stagger.
-        // template <std::size_t Order>
-        // struct Coefficients<Order, Left> : public Coefficients<Order, Right> { };
+        template <std::size_t Order>
+        struct Coefficients<Order, Left> : public Coefficients<Order, Right> { };
 
         template <Derivative D, std::size_t Order, StaggerGrid Stagger>
         struct StencilBase
