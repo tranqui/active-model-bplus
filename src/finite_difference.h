@@ -4,18 +4,19 @@
 
 namespace finite_difference
 {
-    // Indicating order of derivative (i.e. dy/dx or d^2/dx^2):
-    enum Derivative { First, Second };
+    // Indicating order of derivative (i.e. y(x), y'(x), y''(x)):
+    enum Derivative { Zero, First, Second };
 
     namespace details
     {
-        /// Finite difference coefficients for 1st and 2nd derivatives at various orders of expansion.
+        /// Finite difference coefficients for 0th, 1st and 2nd derivatives at various orders of expansion.
 
         template <std::size_t Order, StaggerGrid Stagger> struct Coefficients { };
 
         template <>
         struct Coefficients<2, Central>
         {
+            static constexpr std::array<Scalar, 1> zero{1};
             static constexpr std::array<Scalar, 3> first{-0.5, 0, 0.5};
             static constexpr std::array<Scalar, 3> second{1, -2, 1};
         };
@@ -23,6 +24,7 @@ namespace finite_difference
         template <>
         struct Coefficients<4, Central>
         {
+            static constexpr std::array<Scalar, 1> zero{1};
             static constexpr std::array<Scalar, 5> first{1/12, -2/3, 0, 2/3, -1/12};
             static constexpr std::array<Scalar, 5> second{-1/12, 4/3, -5/2, 4/3, -1/12};
         };
@@ -30,6 +32,7 @@ namespace finite_difference
         template <>
         struct Coefficients<6, Central>
         {
+            static constexpr std::array<Scalar, 1> zero{1};
             static constexpr std::array<Scalar, 7> first{-1/60, 3/20, -3/4, 0, 3/4, -3/20, 1/60};
             static constexpr std::array<Scalar, 7> second{1/90, -3/20, 3/2, -49/18, 3/2, -3/20, 1/90};
         };
@@ -37,6 +40,7 @@ namespace finite_difference
         template <>
         struct Coefficients<8, Central>
         {
+            static constexpr std::array<Scalar, 1> zero{1};
             static constexpr std::array<Scalar, 9> first{1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280};
             static constexpr std::array<Scalar, 9> second{-1/560, 8/315, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560};
         };
@@ -44,6 +48,7 @@ namespace finite_difference
         template <>
         struct Coefficients<2, Right>
         {
+            static constexpr std::array<Scalar, 2> zero{1/2, 1/2};
             static constexpr std::array<Scalar, 2> first{-1, 1};
             static constexpr std::array<Scalar, 4> second{1/2, -1/2, -1/2, 1/2};
         };
@@ -51,6 +56,7 @@ namespace finite_difference
         template <>
         struct Coefficients<4, Right>
         {
+            // static constexpr std::array<Scalar, 4> zero{};
             // static constexpr std::array<Scalar, 5> first{};
             // static constexpr std::array<Scalar, 5> second{-1/12, 4/3, -5/2, 4/3, -1/12};
         };
@@ -58,6 +64,7 @@ namespace finite_difference
         template <>
         struct Coefficients<6, Right>
         {
+            // static constexpr std::array<Scalar, 6> zero{};
             // static constexpr std::array<Scalar, 7> first{};
             // static constexpr std::array<Scalar, 7> second{1/90, -3/20, 3/2, -49/18, 3/2, -3/20, 1/90};
         };
@@ -65,6 +72,7 @@ namespace finite_difference
         template <>
         struct Coefficients<8, Right>
         {
+            // static constexpr std::array<Scalar, 8> zero{};
             // static constexpr std::array<Scalar, 9> first{};
             // static constexpr std::array<Scalar, 9> second{-1/560, 8/315, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560};
         };
@@ -78,8 +86,10 @@ namespace finite_difference
         {
             static constexpr auto get_coefficients()
             {
-                static_assert(D == First or D == Second);
-                if constexpr (D == First)
+                static_assert(D == Zero or D == First or D == Second);
+                if constexpr (D == Zero)
+                    return Coefficients<Order, Stagger>::zero;
+                else if constexpr (D == First)
                     return Coefficients<Order, Stagger>::first;
                 else return Coefficients<Order, Stagger>::second;
             }
@@ -131,6 +141,12 @@ namespace finite_difference
     }
 
     template <std::size_t StencilSize>
+    inline Scalar zero(const std::array<Scalar, StencilSize>& data)
+    {
+        return apply<Zero>(data);
+    }
+
+    template <std::size_t StencilSize>
     inline Scalar first(const std::array<Scalar, StencilSize>& data)
     {
         return apply<First>(data);
@@ -164,7 +180,19 @@ namespace finite_difference
         return result;
     }
 
-    // Aliases to apply coefficients for first and second derivatives.
+    // Aliases to apply coefficients for derivatives of different orders.
+
+    template <std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar zero_x(T&& data, int i, int j)
+    {
+        return apply_x<Zero, Order, Stagger>(std::forward<T>(data), i, j);
+    }
+
+    template <std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar zero_y(T&& data, int i, int j)
+    {
+        return apply_y<Zero, Order, Stagger>(std::forward<T>(data), i, j);
+    }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
     inline Scalar first_x(T&& data, int i, int j)
@@ -191,6 +219,18 @@ namespace finite_difference
     }
 
     // Aliases to default to central derivatives if no staggering of grid selected.
+
+    template <std::size_t Order, typename T>
+    inline Scalar zero_x(T&& data, int i, int j)
+    {
+        return zero_x<Order, Central>(std::forward<T>(data), i, j);
+    }
+
+    template <std::size_t Order, typename T>
+    inline Scalar zero_y(T&& data, int i, int j)
+    {
+        return zero_y<Order, Central>(std::forward<T>(data), i, j);
+    }
 
     template <std::size_t Order, typename T>
     inline Scalar first_x(T&& data, int i, int j)
