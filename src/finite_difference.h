@@ -108,21 +108,21 @@ namespace finite_difference
         struct Stencil<D, Order, Central> : public StencilBase<D, Order, Central>
         {
             using StencilBase<D, Order, Central>::size;
-            static constexpr int start = -size/2;
+            static constexpr int start = -static_cast<int>(size)/2;
         };
 
         template <Derivative D, std::size_t Order>
         struct Stencil<D, Order, Left> : public StencilBase<D, Order, Left>
         {
             using StencilBase<D, Order, Left>::size;
-            static constexpr int start = -size/2 - 1;
+            static constexpr int start = -static_cast<int>(size)/2;
         };
 
         template <Derivative D, std::size_t Order>
         struct Stencil<D, Order, Right> : public StencilBase<D, Order, Right>
         {
             using StencilBase<D, Order, Right>::size;
-            static constexpr int start = -size/2 + 1;
+            static constexpr int start = -static_cast<int>(size)/2 + 1;
         };
     }
 
