@@ -267,14 +267,14 @@ namespace finite_difference
                 if (j4 >= Nx) j4 -= Nx;
 
                 Scalar grad_x2 = 0.25 * (field(i2, j3) - field(i2, j1)
-                                    + field(i3, j3) - field(i3, j1)) / stencil.dx;
+                                       + field(i3, j3) - field(i3, j1)) / stencil.dx;
                 Scalar grad_x3 = 0.25 * (field(i2, j4) - field(i2, j2)
-                                    + field(i3, j4) - field(i3, j2)) / stencil.dx;
+                                       + field(i3, j4) - field(i3, j2)) / stencil.dx;
 
                 Scalar grad_y2 = 0.25 * (field(i3, j2) - field(i1, j2)
-                                    + field(i3, j3) - field(i1, j3)) / stencil.dy;
+                                       + field(i3, j3) - field(i1, j3)) / stencil.dy;
                 Scalar grad_y3 = 0.25 * (field(i4, j2) - field(i2, j2)
-                                    + field(i4, j3) - field(i2, j3)) / stencil.dy;
+                                       + field(i4, j3) - field(i2, j3)) / stencil.dy;
 
                 Scalar lap_x = (grad_x3 - grad_x2) / stencil.dx;
                 Scalar lap_y = (grad_y3 - grad_y2) / stencil.dy;
@@ -310,7 +310,7 @@ namespace finite_difference
                 if (jp >= Nx) jp -= Nx;
 
                 div(i, j) = (grad[0](ip, j ) - grad[0](im, j )) / stencil.dy
-                        + (grad[1](i , jp) - grad[1](i , jm)) / stencil.dx;
+                          + (grad[1](i , jp) - grad[1](i , jm)) / stencil.dx;
             }
         }
 
