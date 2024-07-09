@@ -67,6 +67,18 @@ foreach(SO_FILE ${STATIC_OBJECTS})
     COMMENT "Copying ${SO_FILE} to module")
 endforeach()
 
+# Executable to benchmark aspects of device code.
+add_executable(take_derivative benchmark/take_derivative.cu)
+target_include_directories(take_derivative PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_custom_command(
+  TARGET take_derivative POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/take_derivative
+          ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/take_derivative
+  COMMAND cuobjdump -res-usage -sass take_derivative >> ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/take_derivative.txt
+  COMMENT "Copying take_derivative to benchmark directory"
+)
+
+
 # Unit test executables
 add_executable(test_finite_differences test/test_finite_differences.cc)
 add_dependencies(test_finite_differences integrator)
