@@ -136,12 +136,12 @@ namespace kernel
 
         __syncthreads();
 
-        current[0][index] = -StaggeredDifference<Right>::grad_y(mu, i, j);
-        current[1][index] = -StaggeredDifference<Right>::grad_x(mu, i, j);
+        current[0][index] = -StaggeredDifference<Right>::first_y(mu, i, j);
+        current[1][index] = -StaggeredDifference<Right>::first_x(mu, i, j);
 
         Scalar lap = StaggeredDifference<Right>::laplacian(tile, i, j);
-        current[0][index] += model.zeta * lap * StaggeredDifference<Right>::grad_y(tile, i, j);
-        current[1][index] += model.zeta * lap * StaggeredDifference<Right>::grad_x(tile, i, j);
+        current[0][index] += model.zeta * lap * StaggeredDifference<Right>::first_y(tile, i, j);
+        current[1][index] += model.zeta * lap * StaggeredDifference<Right>::first_x(tile, i, j);
     }
 
     __global__ void step(DeviceField field, DeviceCurrent current)
@@ -191,8 +191,8 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = StaggeredDifference<Left>::grad_y(tile[0], i, j)
-                    + StaggeredDifference<Left>::grad_x(tile[1], i, j);
+        Scalar divJ = StaggeredDifference<Left>::first_y(tile[0], i, j)
+                    + StaggeredDifference<Left>::first_x(tile[1], i, j);
         field[index] -= stencil.dt * divJ;
     }
 
