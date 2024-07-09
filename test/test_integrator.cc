@@ -1,7 +1,7 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
 #include "integrator.h"
-#include "foreach.h"
+#include "for_each.h"
 #include "test_utilities.h"
 
 using namespace finite_difference;

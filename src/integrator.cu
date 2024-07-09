@@ -1,6 +1,6 @@
 #include "integrator.h"
 #include "parameters.cuh"
-#include "foreach.h"
+#include "for_each.h"
 #include "finite_difference.cuh"
 
 #include <cuda.h>
