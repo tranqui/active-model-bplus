@@ -1,6 +1,11 @@
 #pragma once
 #include "math_primitives.h"
 
+#ifdef __CUDACC__
+    #define CUDA_HOST_DEVICE __host__ __device__
+#else
+    #define CUDA_HOST_DEVICE
+#endif
 
 namespace finite_difference
 {
@@ -87,7 +92,7 @@ namespace finite_difference
         template <Derivative D, std::size_t Order, StaggerGrid Stagger>
         struct StencilBase
         {
-            static constexpr auto get_coefficients()
+            CUDA_HOST_DEVICE static constexpr auto get_coefficients()
             {
                 static_assert(D == Zero or D == First or D == Second);
                 if constexpr (D == Zero)
@@ -95,6 +100,13 @@ namespace finite_difference
                 else if constexpr (D == First)
                     return Coefficients<Order, Stagger>::first;
                 else return Coefficients<Order, Stagger>::second;
+            }
+
+            CUDA_HOST_DEVICE static constexpr Scalar coefficient(int k)
+            {
+                static_assert(D == Zero or D == First or D == Second);
+                const auto& coefficients = get_coefficients();
+                return coefficients[k];
             }
 
             static constexpr auto coefficients = get_coefficients();
@@ -129,7 +141,7 @@ namespace finite_difference
     // Apply central derivatives on a 1d set of support points.
 
     template <Derivative D, std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar apply(T&& data)
+    CUDA_HOST_DEVICE inline Scalar apply(T&& data)
     {
         static_assert(Order >= 1);
         using stencil = details::Stencil<D, Order, Stagger>;
@@ -137,42 +149,42 @@ namespace finite_difference
 
         Scalar result{0};
         for (std::size_t k = 0; k < stencil::size; ++k)
-            result += stencil::coefficients[k] * data[k];
+            result += stencil::coefficient(k) * data[k];
         return result;
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar zero(T&& data)
+    CUDA_HOST_DEVICE inline Scalar zero(T&& data)
     {
         return apply<Zero, Order, Stagger>(std::forward<T>(data));
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar first(T&& data)
+    CUDA_HOST_DEVICE inline Scalar first(T&& data)
     {
         return apply<First, Order, Stagger>(std::forward<T>(data));
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar second(T&& data)
+    CUDA_HOST_DEVICE inline Scalar second(T&& data)
     {
         return apply<Second, Order, Stagger>(std::forward<T>(data));
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar zero(T&& data)
+    CUDA_HOST_DEVICE inline Scalar zero(T&& data)
     {
         return apply<Zero, Order, Central>(std::forward<T>(data));
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar first(T&& data)
+    CUDA_HOST_DEVICE inline Scalar first(T&& data)
     {
         return apply<First, Order, Central>(std::forward<T>(data));
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar second(T&& data)
+    CUDA_HOST_DEVICE inline Scalar second(T&& data)
     {
         return apply<Second, Order, Central>(std::forward<T>(data));
     }
@@ -180,59 +192,59 @@ namespace finite_difference
     // Apply coefficients for a particular derivative to the stencil at position (i, j).
 
     template <Derivative D, std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar apply_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar apply_x(T&& data, int i, int j)
     {
         using stencil = details::Stencil<D, Order, Stagger>;
         Scalar result{0};
-        for (std::size_t k = 0; k < stencil::size; ++k)
-            result += stencil::coefficients[k] * (data[i][j + k + stencil::start]);
+        for (int k = 0; k < stencil::size; ++k)
+            result += stencil::coefficient(k) * (data[i][j + k + stencil::start]);
         return result;
     }
 
     template <Derivative D, std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar apply_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar apply_y(T&& data, int i, int j)
     {
         using stencil = details::Stencil<D, Order, Stagger>;
         Scalar result{0};
-        for (std::size_t k = 0; k < stencil::size; ++k)
-            result += stencil::coefficients[k] * (data[i + k + stencil::start][j]);
+        for (int k = 0; k < stencil::size; ++k)
+            result += stencil::coefficient(k) * (data[i + k + stencil::start][j]);
         return result;
     }
 
     // Aliases to apply coefficients for derivatives of different orders.
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar zero_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar zero_x(T&& data, int i, int j)
     {
         return apply_x<Zero, Order, Stagger>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar zero_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar zero_y(T&& data, int i, int j)
     {
         return apply_y<Zero, Order, Stagger>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar first_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar first_x(T&& data, int i, int j)
     {
         return apply_x<First, Order, Stagger>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar first_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar first_y(T&& data, int i, int j)
     {
         return apply_y<First, Order, Stagger>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar second_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar second_x(T&& data, int i, int j)
     {
         return apply_x<Second, Order, Stagger>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, StaggerGrid Stagger, typename T>
-    inline Scalar second_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar second_y(T&& data, int i, int j)
     {
         return apply_y<Second, Order, Stagger>(std::forward<T>(data), i, j);
     }
@@ -240,37 +252,37 @@ namespace finite_difference
     // Aliases to default to central derivatives if no staggering of grid selected.
 
     template <std::size_t Order, typename T>
-    inline Scalar zero_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar zero_x(T&& data, int i, int j)
     {
         return zero_x<Order, Central>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar zero_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar zero_y(T&& data, int i, int j)
     {
         return zero_y<Order, Central>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar first_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar first_x(T&& data, int i, int j)
     {
         return first_x<Order, Central>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar first_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar first_y(T&& data, int i, int j)
     {
         return first_y<Order, Central>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar second_x(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar second_x(T&& data, int i, int j)
     {
         return second_x<Order, Central>(std::forward<T>(data), i, j);
     }
 
     template <std::size_t Order, typename T>
-    inline Scalar second_y(T&& data, int i, int j)
+    CUDA_HOST_DEVICE inline Scalar second_y(T&& data, int i, int j)
     {
         return second_y<Order, Central>(std::forward<T>(data), i, j);
     }

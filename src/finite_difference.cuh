@@ -11,7 +11,7 @@ namespace kernel
         /// Helper functions.
 
         template <typename T>
-        __device__ inline Scalar square(T&& val)
+        __forceinline__ __device__ Scalar square(T&& val)
         {
             return val * val;
         }
@@ -26,13 +26,13 @@ namespace kernel
         template <typename Derived> struct BaseDerivative
         {
             template <typename T>
-            static __device__ inline Scalar laplacian(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar laplacian(T&& tile, int i, int j)
             {
                 return Derived::lap_x(tile, i, j) + Derived::lap_y(tile, i, j);
             }
 
             template <typename T>
-            static __device__ inline Scalar grad_squ(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
             {
                 return square(Derived::grad_x(tile, i, j))
                      + square(Derived::grad_y(tile, i, j));
@@ -55,25 +55,25 @@ namespace kernel
         struct CentralDerivative<2> : public BaseDerivative<CentralDerivative<2>>
         {
             template <typename T>
-            static __device__ inline Scalar grad_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_x(T&& tile, int i, int j)
             {
                 return 0.5 * stencil.dxInv * (tile[i][j+1] - tile[i][j-1]);
             }
 
             template <typename T>
-            static __device__ inline Scalar grad_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_y(T&& tile, int i, int j)
             {
                 return 0.5 * stencil.dyInv * (tile[i+1][j] - tile[i-1][j]);
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_x(T&& tile, int i, int j)
             {
                 return stencil.dxInv*stencil.dxInv * (tile[i][j+1] - 2*tile[i][j] + tile[i][j-1]);
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_y(T&& tile, int i, int j)
             {
                 return stencil.dyInv*stencil.dyInv * (tile[i+1][j] - 2*tile[i][j] + tile[i-1][j]);
             }
@@ -85,25 +85,25 @@ namespace kernel
         struct CentralDerivative<4> : public BaseDerivative<CentralDerivative<4>>
         {
             template <typename T>
-            static __device__ inline Scalar grad_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_x(T&& tile, int i, int j)
             {
                 return stencil.dxInv * (-tile[i][j+2] + 8*tile[i][j+1] - 8*tile[i][j-1] + tile[i][j-2]) / 12;
             }
 
             template <typename T>
-            static __device__ inline Scalar grad_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_y(T&& tile, int i, int j)
             {
                 return stencil.dyInv * (-tile[i+2][j] + 8*tile[i+1][j] - 8*tile[i-1][j] + tile[i-2][j]) / 12;
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_x(T&& tile, int i, int j)
             {
                 return stencil.dxInv*stencil.dxInv * (-tile[i][j+2] + 16*tile[i][j+1] - 30*tile[i][j] + 16*tile[i][j-1] - tile[i][j-2]) / 12;
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_y(T&& tile, int i, int j)
             {
                 return stencil.dyInv*stencil.dyInv * (-tile[i+2][j] + 16*tile[i+1][j] - 30*tile[i][j] + 16*tile[i-1][j] - tile[i-2][j]) / 12;
             }
@@ -132,55 +132,31 @@ namespace kernel
         template <StaggerGrid Stagger, int Order>
         struct StaggeredDerivative
             : public BaseDerivative<StaggeredDerivative<Stagger, Order>>
-        { };
-
-        /// Second-order staggered finite-difference derivatives.
-        template <StaggerGrid Stagger>
-        struct StaggeredDerivative<Stagger, 2>
-            : public BaseDerivative<StaggeredDerivative<Stagger, 2>>
         {
             template <typename T>
-            static __device__ inline Scalar grad_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_x(T&& tile, int i, int j)
             {
-                if constexpr (Stagger == Right)
-                    return stencil.dxInv * (tile[i][j+1] - tile[i][j]);
-                else
-                    return stencil.dxInv * (tile[i][j] - tile[i][j-1]);
+                return stencil.dxInv * finite_difference::first_x<Order, Stagger>(std::forward<T>(tile), i, j);
             }
 
             template <typename T>
-            static __device__ inline Scalar grad_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar grad_y(T&& tile, int i, int j)
             {
-                if constexpr (Stagger == Right)
-                    return stencil.dyInv * (tile[i+1][j] - tile[i][j]);
-                else
-                    return stencil.dyInv * (tile[i][j] - tile[i-1][j]);
+                return stencil.dyInv * finite_difference::first_y<Order, Stagger>(std::forward<T>(tile), i, j);
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_x(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_x(T&& tile, int i, int j)
             {
-                if constexpr (Stagger == Right)
-                    return 0.25 * stencil.dxInv * stencil.dxInv * (
-                        (tile[i][j+2] - tile[i][ j ] + tile[i+1][j+2] - tile[i+1][ j ])
-                      - (tile[i][j+1] - tile[i][j-1] + tile[i+1][j+1] - tile[i+1][j-1]) );
-                else
-                    return 0.25 * stencil.dxInv * stencil.dxInv * (
-                        (tile[i][j+1] - tile[i][j-1] + tile[i-1][j+1] - tile[i-1][j-1])
-                      - (tile[i][ j ] - tile[i][j-2] + tile[i-1][ j ] - tile[i-1][j-2]) );
+                return stencil.dxInv * stencil.dxInv *
+                       finite_difference::first_x<Order, Stagger>(std::forward<T>(tile), i, j);
             }
 
             template <typename T>
-            static __device__ inline Scalar lap_y(T&& tile, int i, int j)
+            static __forceinline__ __device__ Scalar lap_y(T&& tile, int i, int j)
             {
-                if constexpr (Stagger == Right)
-                    return 0.25 * stencil.dyInv * stencil.dyInv * (
-                        (tile[i+2][j] - tile[ i ][j] + tile[i+2][j+1] - tile[ i ][j+1])
-                      - (tile[i+1][j] - tile[i-1][j] + tile[i+1][j+1] - tile[i-1][j+1]) );
-                else
-                    return 0.25 * stencil.dyInv * stencil.dyInv * (
-                        (tile[i+1][j] - tile[i-1][j] + tile[i+1][j-1] - tile[i-1][j-1])
-                      - (tile[ i ][j] - tile[i-2][j] + tile[ i ][j-1] - tile[i-2][j-1]) );
+                return stencil.dyInv * stencil.dyInv *
+                       finite_difference::first_y<Order, Stagger>(std::forward<T>(tile), i, j);
             }
         };
     }
