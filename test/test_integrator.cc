@@ -62,7 +62,7 @@ TEST_CASE("BulkCurrentTest")
             mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
     // Current $\vec{J} = - \nabla \mu$:
-    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    Current expected_J = gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
     Current actual_J = simulation.get_current();
@@ -80,7 +80,7 @@ TEST_CASE("BulkCurrentTest")
 
     {
         // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        Field expected_divJ = divergence<Left>(actual_J, stencil);
         CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
     }
 }
@@ -98,7 +98,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
     Field mu = -model.kappa * laplacian(field, stencil);
-    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    Current expected_J = gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
     Current actual_J = simulation.get_current();
@@ -116,7 +116,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
 
     {
         // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        Field expected_divJ = divergence<Left>(actual_J, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
@@ -141,7 +141,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
             for (int c = 0; c < d; ++c)
                 mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
 
-    Current expected_J = staggered_gradient<Right>(mu, stencil);
+    Current expected_J = gradient<Right>(mu, stencil);
     for (int c = 0; c < d; ++c) expected_J[c] *= -1;
 
     Current actual_J = simulation.get_current();
@@ -159,7 +159,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
     {
         // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        Field expected_divJ = divergence<Left>(actual_J, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
@@ -178,8 +178,8 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap = staggered_laplacian<Right>(field, stencil);
-    Gradient grad = staggered_gradient<Right>(field, stencil);
+    Field lap = laplacian<Right>(field, stencil);
+    Gradient grad = gradient<Right>(field, stencil);
 
     Current expected_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
@@ -217,7 +217,7 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     {
         // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = staggered_divergence<Left>(actual_J, stencil);
+        Field expected_divJ = divergence<Left>(actual_J, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
