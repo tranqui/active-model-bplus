@@ -69,16 +69,19 @@ endforeach()
 
 # Unit test executables
 add_executable(test_finite_differences test/test_finite_differences.cc)
+add_dependencies(test_finite_differences integrator)
 target_include_directories(test_finite_differences PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
+                           ${CMAKE_CURRENT_SOURCE_DIR}/test
                            ${EIGEN3_INCLUDE_DIRS}
                            ${Catch2_INCLUDE_DIRS})
 
 add_executable(test_integrator test/test_integrator.cc)
-add_dependencies(test_integrator integrator)
+add_dependencies(test_integrator integrator test_finite_differences)
 target_link_libraries(test_integrator integrator-kernel)
 target_include_directories(test_integrator PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
+                           ${CMAKE_CURRENT_SOURCE_DIR}/test
                            ${EIGEN3_INCLUDE_DIRS}
                            ${Catch2_INCLUDE_DIRS})
 
