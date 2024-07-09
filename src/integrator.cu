@@ -298,7 +298,7 @@ void Integrator::calculate_current()
     timestep_calculated_current = timestep;
 }
 
-void Integrator::run(int nsteps [[maybe_unused]])
+void Integrator::run(int nsteps)
 {
     set_device_parameters();
     const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
