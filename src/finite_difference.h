@@ -56,25 +56,28 @@ namespace finite_difference
         template <>
         struct Coefficients<4, Right>
         {
-            // static constexpr std::array<Scalar, 4> zero{};
-            // static constexpr std::array<Scalar, 5> first{};
-            // static constexpr std::array<Scalar, 5> second{-1/12, 4/3, -5/2, 4/3, -1/12};
+            static constexpr std::array<Scalar, 4> zero{-1/16, 9/16, 9/16, -1/16};
+            static constexpr std::array<Scalar, 4> first{1/24, -27/24, 27/24, -1/24};
+            static constexpr std::array<Scalar, 6> second{-5/48, 39/48, -34/48, -34/48, 39/48, -5/48};
         };
 
         template <>
         struct Coefficients<6, Right>
         {
-            // static constexpr std::array<Scalar, 6> zero{};
-            // static constexpr std::array<Scalar, 7> first{};
-            // static constexpr std::array<Scalar, 7> second{1/90, -3/20, 3/2, -49/18, 3/2, -3/20, 1/90};
+            static constexpr std::array<Scalar, 6> zero{3/256, -25/256, 150/256, 150/256, -25/256, 3/256};
+            static constexpr std::array<Scalar, 6> first{-9/1920, 125/1920, -2250/1920, 2250/1920, -125/1920, 9/1920};
+            static constexpr std::array<Scalar, 8> second{  259/11520, -2495/11520, 11691/11520, -9455/11520,
+                                                          -9455/11520, 11691/11520, -2495/11520,   259/11520};
         };
 
         template <>
         struct Coefficients<8, Right>
         {
-            // static constexpr std::array<Scalar, 8> zero{};
-            // static constexpr std::array<Scalar, 9> first{};
-            // static constexpr std::array<Scalar, 9> second{-1/560, 8/315, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560};
+            static constexpr std::array<Scalar, 8> zero{-5/2048, 49/2048, -245/2048, 1225/2048, 1225/2048, -245/2048, 49/2048, -5/2048};
+            static constexpr std::array<Scalar, 8> first{    75/107520, -1029/107520, 8575/107520, -128625/107520,
+                                                         128625/107520, -8575/107520, 1029/107520,     -75/107520};
+            static constexpr std::array<Scalar, 10> second{  -3229/645120,  37107/645120, -204300/645120, 745108/645120, -574686/645120,
+                                                           -574686/645120, 745108/645120, -204300/645120,  37107/645120,   -3229/645120};
         };
 
         // Coefficients for left stagger are the same as for right stagger.
