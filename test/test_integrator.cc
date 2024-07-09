@@ -178,14 +178,17 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap = laplacian<Right>(field, stencil);
+    Field lap_y = laplacian<Right, Central>(field, stencil);
+    Field lap_x = laplacian<Central, Right>(field, stencil);
     Gradient grad = gradient<Right>(field, stencil);
 
     Current expected_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
-            for (int c = 0; c < d; ++c)
-                expected_J[c](i,j) = model.zeta * lap(i,j) * grad[c](i,j);
+        {
+            expected_J[0](i,j) = model.zeta * lap_y(i,j) * grad[0](i,j);
+            expected_J[1](i,j) = model.zeta * lap_x(i,j) * grad[1](i,j);
+        }
 
     Current actual_J = simulation.get_current();
     CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
@@ -193,33 +196,8 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = \nabla(\nabla^2\phi) \cdot \nabla \phi + (\nabla^2 \phi)^2$:
-
-        Field lap = laplacian(field, stencil);
-        Gradient grad_phi = gradient(field, stencil);
-        Gradient grad_lap = gradient(lap, stencil);
-
-        Field expected_divJ(Ny, Nx);
-        for (int i = 0; i < Ny; ++i)
-            for (int j = 0; j < Nx; ++j)
-            {
-                expected_divJ(i,j) = model.zeta * lap(i,j) * lap(i,j);
-                for (int c = 0; c < d; ++c)
-                    expected_divJ(i,j) += model.zeta * grad_lap[c](i,j) * grad_phi[c](i,j);
-            }
-
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-        std::cout << actual_divJ << std::endl << std::endl;
-        std::cout << expected_divJ << std::endl << std::endl;
-    }
-
-    {
-        // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = divergence<Left>(actual_J, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
+    Field expected_divJ = divergence<Left>(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
 }
 
 TEST_CASE("ConservationTest")

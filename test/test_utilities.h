@@ -168,28 +168,57 @@ namespace finite_difference
     }
 
     // Find laplacian of field by central finite differences.
-    template <StaggerGrid Stagger>
+    template <StaggerGrid StaggerY, StaggerGrid StaggerX>
     inline Field laplacian(const FieldRef& field, Stencil stencil)
     {
-        const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
+        const Scalar dyInv{1/stencil.dy}, dxInv{1/stencil.dx};
         const auto Ny{field.rows()}, Nx{field.cols()};
-        Field laplacian{Ny, Nx};
+        Field second_y(Ny, Nx), second_x(Ny, Nx);
 
-        auto lap = [&](int i, int j, auto tile_y, auto tile_x)
+        auto deriv_y = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            laplacian(i, j) = dyInv*dyInv * second<order, Stagger>(tile_y)
-                            + dxInv*dxInv * second<order, Stagger>(tile_x);
+            second_y(i, j) = second<order, StaggerY>(tile_y);
         };
-        for_each_tile<Second, Stagger>(field, lap);
+        for_each_tile<Second, StaggerY>(field, deriv_y);
 
-        return laplacian;
+        auto deriv_x = [&](int i, int j, auto tile_y, auto tile_x)
+        {
+            second_x(i, j) = second<order, StaggerX>(tile_x);
+        };
+        for_each_tile<Second, StaggerX>(field, deriv_x);
+
+        // Interpolate $\partial_{xx}^2 \phi$ over any stagger in y-dir:
+        if constexpr (StaggerY != Central)
+        {
+            Field tmp(Ny, Nx);
+            auto stagger_y = [&](int i, int j, auto tile_y, auto tile_x)
+            {
+                tmp(i, j) = zero<order, StaggerY>(tile_y);
+            };
+            for_each_tile<Second, StaggerY>(second_x, stagger_y);
+            second_x = tmp;
+        }
+
+        // Interpolate $\partial_{yy}^2 \phi$ over any stagger in x-dir:
+        if constexpr (StaggerX != Central)
+        {
+            Field tmp(Ny, Nx);
+            auto stagger_x = [&](int i, int j, auto tile_y, auto tile_x)
+            {
+                tmp(i, j) = zero<order, StaggerX>(tile_x);
+            };
+            for_each_tile<Second, StaggerX>(second_y, stagger_x);
+            second_y = tmp;
+        }
+
+        return dyInv*dyInv * second_y + dxInv*dxInv * second_x;
     }
 
     // Find divergence of vector field by central finite differences.
     template <StaggerGrid Stagger>
     inline Field divergence(const Gradient& grad, Stencil stencil)
     {
-        const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
+        const Scalar dyInv{1/stencil.dy}, dxInv{1/stencil.dx};
         const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
         Field divergence = Field::Zero(Ny, Nx);
 
@@ -215,7 +244,7 @@ namespace finite_difference
 
     inline Field laplacian(const FieldRef& field, Stencil stencil)
     {
-        return laplacian<Central>(field, stencil);
+        return laplacian<Central, Central>(field, stencil);
     }
 
     inline Field divergence(const Gradient& grad, Stencil stencil)
