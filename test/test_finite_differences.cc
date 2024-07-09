@@ -12,9 +12,9 @@ TEST_CASE("StaggerTest")
     Stencil stencil{1e-2, 1, 0.75};
 
     Field field = Field::Random(Ny, Nx);
-    Gradient grad = staggered_gradient<Right>(field, stencil);
+    Gradient grad = gradient<Right>(field, stencil);
     Field lap = laplacian(field, stencil);
-    CHECK(is_equal<tight_tol>(lap, staggered_divergence<Left>(grad, stencil)));
+    CHECK(is_equal<tight_tol>(lap, divergence<Left>(grad, stencil)));
 }
 
 /// Check derivatives of known analytic functions

@@ -98,104 +98,129 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
          + model.c * field * field * field;
 }
 
-// Loop through field and generate local stencil for central finite
-// difference calculations.
-template <typename Operation>
-inline void apply_operation(Field field, Operation operation)
-{
-    const auto Ny{field.rows()}, Nx{field.cols()};
-    constexpr std::size_t stencil_size = 1 + order;
 
-    for (int i = 0; i < Ny; ++i)
-    {
-        // Nearest neighbours in y-direction w/ periodic boundaries:
-        std::array<int, stencil_size> iy;
-        for (int k = 0; k < stencil_size; ++k)
-        {
-            iy[k] = i - order + k + 1;
-            if (iy[k] < 0) iy[k] += Ny;
-            if (iy[k] >= Ny) iy[k] -= Ny;
-        }
-
-        for (int j = 0; j < Nx; ++j)
-        {
-            // Nearest neighbours in x-direction w/ periodic boundaries:
-            std::array<int, stencil_size> ix;
-            for (int k = 0; k < stencil_size; ++k)
-            {
-                ix[k] = j - order + k + 1;
-                if (ix[k] < 0) ix[k] += Nx;
-                if (ix[k] >= Nx) ix[k] -= Nx;
-            }
-
-            // Retrieve field points indexed by stencil.
-            std::array<Scalar, stencil_size> stencil_y, stencil_x;
-            for (int k = 0; k < stencil_size; ++k)
-            {
-                stencil_y[k] = field(iy[k], j);
-                stencil_x[k] = field(i, ix[k]);
-            }
-
-            operation(i, j, stencil_y, stencil_x);
-        }
-    }
-}
 
 namespace finite_difference
 {
+    // Loop through each tile for given stencil and apply operation.
+    template <Derivative D, StaggerGrid Stagger, typename Operation>
+    inline void for_each_tile(Field field, Operation operation)
+    {
+        const auto Ny{field.rows()}, Nx{field.cols()};
+        using stencil = details::Stencil<D, order, Stagger>;
+
+        for (int i = 0; i < Ny; ++i)
+        {
+            // Nearest neighbours in y-direction w/ periodic boundaries:
+            std::array<int, stencil::size> iy;
+            for (int k = 0; k < stencil::size; ++k)
+            {
+                iy[k] = i + k + stencil::start;
+                if (iy[k] < 0) iy[k] += Ny;
+                if (iy[k] >= Ny) iy[k] -= Ny;
+            }
+
+            for (int j = 0; j < Nx; ++j)
+            {
+                // Nearest neighbours in x-direction w/ periodic boundaries:
+                std::array<int, stencil::size> ix;
+                for (int k = 0; k < stencil::size; ++k)
+                {
+                    ix[k] = j + k + stencil::start;
+                    if (ix[k] < 0) ix[k] += Nx;
+                    if (ix[k] >= Nx) ix[k] -= Nx;
+                }
+
+                // Retrieve field points indexed by stencil.
+                std::array<Scalar, stencil::size> tile_y, tile_x;
+                for (int k = 0; k < stencil::size; ++k)
+                {
+                    tile_y[k] = field(iy[k], j);
+                    tile_x[k] = field(i, ix[k]);
+                }
+
+                operation(i, j, tile_y, tile_x);
+            }
+        }
+    }
+
+    template <Derivative D, typename Operation>
+    inline void for_each_tile(Field field, Operation operation)
+    {
+        for_each_tile<D, Central>(field, operation);
+    }
+
     // Find gradient of field by central finite differences.
+    template <StaggerGrid Stagger>
     inline Gradient gradient(Field field, Stencil stencil)
     {
         const auto Ny{field.rows()}, Nx{field.cols()};
         Gradient gradient{Field(Ny, Nx), Field(Ny, Nx)};
 
-        auto grad = [&](int i, int j, auto stencil_y, auto stencil_x)
+        auto grad = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            gradient[0](i, j) = first(stencil_y) / stencil.dy;
-            gradient[1](i, j) = first(stencil_x) / stencil.dx;
+            gradient[0](i, j) = first<order, Stagger>(tile_y) / stencil.dy;
+            gradient[1](i, j) = first<order, Stagger>(tile_x) / stencil.dx;
         };
-        apply_operation(field, grad);
+        for_each_tile<First, Stagger>(field, grad);
 
         return gradient;
     }
 
     // Find laplacian of field by central finite differences.
+    template <StaggerGrid Stagger>
     inline Field laplacian(const FieldRef& field, Stencil stencil)
     {
         const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
         const auto Ny{field.rows()}, Nx{field.cols()};
         Field laplacian{Ny, Nx};
 
-        auto lap = [&](int i, int j, auto stencil_y, auto stencil_x)
+        auto lap = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            laplacian(i, j) = dyInv*dyInv * second(stencil_y)
-                            + dxInv*dxInv * second(stencil_x);
+            laplacian(i, j) = dyInv*dyInv * second<order, Stagger>(tile_y)
+                            + dxInv*dxInv * second<order, Stagger>(tile_x);
         };
-        apply_operation(field, lap);
+        for_each_tile<Second, Stagger>(field, lap);
 
         return laplacian;
     }
 
     // Find divergence of vector field by central finite differences.
+    template <StaggerGrid Stagger>
     inline Field divergence(const Gradient& grad, Stencil stencil)
     {
         const Scalar dxInv{1/stencil.dx}, dyInv{1/stencil.dy};
         const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
         Field divergence = Field::Zero(Ny, Nx);
 
-        auto div_y = [&](int i, int j, auto stencil_y, auto stencil_x)
+        auto div_y = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            divergence(i, j) += dyInv * first(stencil_y);
+            divergence(i, j) += dyInv * first<order, Stagger>(tile_y);
         };
-        auto div_x = [&](int i, int j, auto stencil_y, auto stencil_x)
+        auto div_x = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            divergence(i, j) += dxInv * first(stencil_x);
+            divergence(i, j) += dxInv * first<order, Stagger>(tile_x);
         };
 
-        apply_operation(grad[0], div_y);
-        apply_operation(grad[1], div_x);
+        for_each_tile<First, Stagger>(grad[0], div_y);
+        for_each_tile<First, Stagger>(grad[1], div_x);
 
         return divergence;
+    }
+
+    inline Gradient gradient(Field field, Stencil stencil)
+    {
+        return gradient<Central>(field, stencil);
+    }
+
+    inline Field laplacian(const FieldRef& field, Stencil stencil)
+    {
+        return laplacian<Central>(field, stencil);
+    }
+
+    inline Field divergence(const Gradient& grad, Stencil stencil)
+    {
+        return divergence<Central>(grad, stencil);
     }
 
     template <StaggerGrid Stagger>

@@ -128,37 +128,53 @@ namespace finite_difference
 
     // Apply central derivatives on a 1d set of support points.
 
-    template <Derivative D, std::size_t StencilSize>
-    inline Scalar apply(const std::array<Scalar, StencilSize>& data)
+    template <Derivative D, std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar apply(T&& data)
     {
-        static_assert(StencilSize % 2 == 1);
-        static constexpr int Order = StencilSize - 1;
         static_assert(Order >= 1);
-        using stencil = details::Stencil<D, Order, Central>;
-        static_assert(StencilSize == stencil::size);
+        using stencil = details::Stencil<D, Order, Stagger>;
+        // static_assert(data.size() == stencil::size);
 
         Scalar result{0};
-        for (std::size_t k = 0; k < StencilSize; ++k)
+        for (std::size_t k = 0; k < stencil::size; ++k)
             result += stencil::coefficients[k] * data[k];
         return result;
     }
 
-    template <std::size_t StencilSize>
-    inline Scalar zero(const std::array<Scalar, StencilSize>& data)
+    template <std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar zero(T&& data)
     {
-        return apply<Zero>(data);
+        return apply<Zero, Order, Stagger>(std::forward<T>(data));
     }
 
-    template <std::size_t StencilSize>
-    inline Scalar first(const std::array<Scalar, StencilSize>& data)
+    template <std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar first(T&& data)
     {
-        return apply<First>(data);
+        return apply<First, Order, Stagger>(std::forward<T>(data));
     }
 
-    template <std::size_t StencilSize>
-    inline Scalar second(const std::array<Scalar, StencilSize>& data)
+    template <std::size_t Order, StaggerGrid Stagger, typename T>
+    inline Scalar second(T&& data)
     {
-        return apply<Second>(data);
+        return apply<Second, Order, Stagger>(std::forward<T>(data));
+    }
+
+    template <std::size_t Order, typename T>
+    inline Scalar zero(T&& data)
+    {
+        return apply<Zero, Order, Central>(std::forward<T>(data));
+    }
+
+    template <std::size_t Order, typename T>
+    inline Scalar first(T&& data)
+    {
+        return apply<First, Order, Central>(std::forward<T>(data));
+    }
+
+    template <std::size_t Order, typename T>
+    inline Scalar second(T&& data)
+    {
+        return apply<Second, Order, Central>(std::forward<T>(data));
     }
 
     // Apply coefficients for a particular derivative to the stencil at position (i, j).
