@@ -9,7 +9,6 @@ find_package(Catch2 REQUIRED)
 
 include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
-include_directories(${Catch2_INCLUDE_DIRS})
 
 # Set compiler flags
 set(CMAKE_CXX_STANDARD 20)
@@ -85,16 +84,14 @@ add_dependencies(test_finite_differences integrator)
 target_include_directories(test_finite_differences PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${CMAKE_CURRENT_SOURCE_DIR}/test
-                           ${EIGEN3_INCLUDE_DIRS}
                            ${Catch2_INCLUDE_DIRS})
 
 add_executable(test_integrator test/test_integrator.cc)
-add_dependencies(test_integrator integrator test_finite_differences)
+add_dependencies(test_integrator integrator-kernel test_finite_differences)
 target_link_libraries(test_integrator integrator-kernel)
 target_include_directories(test_integrator PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${CMAKE_CURRENT_SOURCE_DIR}/test
-                           ${EIGEN3_INCLUDE_DIRS}
                            ${Catch2_INCLUDE_DIRS})
 
 # Register unit tests
@@ -104,19 +101,11 @@ add_test(NAME test_integrator COMMAND test_integrator)
 
 # Run unit tests at end of build process
 add_custom_command(
-    TARGET test_finite_differences POST_BUILD
-    COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS test_finite_differences
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running unit tests of finite difference scheme"
-)
-
-add_custom_command(
     TARGET test_integrator POST_BUILD
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS test_integrator
+    DEPENDS test_integrator test_finite_differences
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running unit tests on integrator"
+    COMMENT "Running unit tests"
 )
 
 # Tests to check pybind11 bindings for the python front end
