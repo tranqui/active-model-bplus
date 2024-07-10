@@ -10,6 +10,7 @@
 #include <string>
 #include <cmath>
 #include <stdexcept>
+#include <random>
 
 
 /// Main execution on GPU device.
@@ -45,7 +46,8 @@ namespace kernel
     // Note this calculation determines $\mu$ and the non-conservative current separately
     __global__ void calculate_current(DeviceField field,
                                       DeviceField chemical_potential,
-                                      DeviceCurrent circulating_current)
+                                      DeviceCurrent circulating_current,
+                                      curandState *random_state)
     {
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -94,6 +96,11 @@ namespace kernel
 
         circulating_current[0][index] = model.zeta * lap * first_y(tile, i, j);
         circulating_current[1][index] = model.zeta * lap * first_x(tile, i, j);
+
+        curandState *rnd = &random_state[index];
+        const Scalar mag = sqrt(2 * model.temperature * stencil.dxInv * stencil.dyInv / stencil.dt);
+        circulating_current[0][index] += mag * curand_normal(rnd);
+        circulating_current[1][index] += mag * curand_normal(rnd);
     }
 
     __global__ void step(DeviceField field, DeviceField chemical_potential,
@@ -169,6 +176,15 @@ namespace kernel
         const int index = col + row * ncols;
         if (not std::isfinite(field[index])) *finite = false;
     }
+
+    // Seed random number generator on the device.
+    __global__ void init_random_state(curandState *state, unsigned long seed)
+    {
+        const int row = blockIdx.y * blockDim.y + threadIdx.y;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int index = col + row * ncols;
+        curand_init(seed, index, 0, &state[index]);
+    }
 }
 
 
@@ -193,6 +209,24 @@ Integrator::Integrator(const HostFieldRef& initial_field,
         cudaMemcpy(current[c], empty.data(), mem_size, cudaMemcpyHostToDevice);
     }
 
+    // Initialise memory for random number generation
+    const int n = initial_field.rows() * initial_field.cols();
+    cudaMalloc(&random_state, n * sizeof(curandState));
+
+    // Now seed the device for random number generation.
+
+    // Generate a non-deterministic seed. 
+    std::random_device rd;
+    std::default_random_engine generator{rd()};
+    std::uniform_int_distribution<unsigned long long> dist;
+    auto seed = dist(generator);
+    // Seed the device.
+    const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
+    const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
+                         (nrows + block_dim.y - 1) / block_dim.y);
+    kernel::init_random_state<<<grid_size, block_dim>>>(random_state, seed);
+    cudaDeviceSynchronize();
+
     kernel::throw_errors();
 }
 
@@ -206,6 +240,7 @@ Integrator::Integrator(Integrator&& other) noexcept
       chemical_potential(std::move(other.chemical_potential)),
       current_pitch(std::move(other.current_pitch)),
       current(std::move(other.current)),
+      random_state(other.random_state),
       timestep(other.timestep),
       timestep_calculated_current(other.timestep_calculated_current)
 {
@@ -217,6 +252,7 @@ Integrator::~Integrator()
     cudaFree(field);
     cudaFree(chemical_potential);
     for (int c = 0; c < d; ++c) cudaFree(current[c]);
+    cudaFree(random_state);
 }
 
 Stencil Integrator::get_stencil() const
@@ -270,7 +306,7 @@ void Integrator::calculate_current()
     const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
     const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
                          (nrows + block_dim.y - 1) / block_dim.y);
-    kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current);
+    kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current, random_state);
     cudaDeviceSynchronize();
     kernel::throw_errors();
 
@@ -287,7 +323,7 @@ void Integrator::run(int nsteps)
 
     for (int i = 0; i < nsteps; ++i)
     {
-        kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current);
+        kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current, random_state);
         kernel::step<<<grid_size, block_dim>>>(field, chemical_potential, current);
     }
 

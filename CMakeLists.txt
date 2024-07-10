@@ -6,8 +6,10 @@ find_package(Python COMPONENTS Interpreter Development)
 find_package(pybind11 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Catch2 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 include_directories(${CUDA_INCLUDE_DIRS})
+include_directories(${CUDAToolkit_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
 # Set compiler flags
