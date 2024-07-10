@@ -166,8 +166,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
 TEST_CASE("SurfaceZetaCurrentTest")
 {
-    // int Nx{64}, Ny{32};
-    int Nx{8}, Ny{8};
+    int Nx{64}, Ny{32};
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 1.25};
