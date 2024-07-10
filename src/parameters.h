@@ -17,6 +17,8 @@ namespace kernel
     static constexpr int tile_cols = 16;
     // We need ghost points for each tile so we can evaluate derivatives at tile borders.
     static constexpr int num_ghost = 1 + order / 2; // <- minimum for fourth derivatives
+    // One less support point needed in integrator because it involves one fewer derivative.
+    static constexpr int num_ghost_integrator = num_ghost - 1;
 }
 
 

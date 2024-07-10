@@ -158,7 +158,7 @@ namespace kernel
 
     __global__ void step(DeviceField field, DeviceCurrent current)
     {
-        constexpr int num_ghost = 2;
+        static constexpr int num_ghost = num_ghost_integrator;
 
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
