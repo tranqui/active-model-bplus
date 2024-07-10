@@ -173,19 +173,14 @@ namespace finite_difference
     {
         const Scalar dyInv{1/stencil.dy}, dxInv{1/stencil.dx};
         const auto Ny{field.rows()}, Nx{field.cols()};
-        Field second_y(Ny, Nx), second_x(Ny, Nx);
+        Field laplacian(Ny, Nx);
 
-        auto deriv_y = [&](int i, int j, auto tile_y, auto tile_x)
+        auto lap = [&](int i, int j, auto tile_y, auto tile_x)
         {
-            second_y(i, j) = second<order, StaggerY>(tile_y);
+            laplacian(i, j) = dyInv*dyInv * second<order>(tile_y)
+                            + dxInv*dxInv * second<order>(tile_x);
         };
-        for_each_tile<Second, StaggerY>(field, deriv_y);
-
-        auto deriv_x = [&](int i, int j, auto tile_y, auto tile_x)
-        {
-            second_x(i, j) = second<order, StaggerX>(tile_x);
-        };
-        for_each_tile<Second, StaggerX>(field, deriv_x);
+        for_each_tile<Second>(field, lap);
 
         // Interpolate $\partial_{xx}^2 \phi$ over any stagger in y-dir:
         if constexpr (StaggerY != Central)
@@ -195,8 +190,8 @@ namespace finite_difference
             {
                 tmp(i, j) = zero<order, StaggerY>(tile_y);
             };
-            for_each_tile<Second, StaggerY>(second_x, stagger_y);
-            second_x = tmp;
+            for_each_tile<Zero, StaggerY>(laplacian, stagger_y);
+            laplacian = tmp;
         }
 
         // Interpolate $\partial_{yy}^2 \phi$ over any stagger in x-dir:
@@ -207,11 +202,11 @@ namespace finite_difference
             {
                 tmp(i, j) = zero<order, StaggerX>(tile_x);
             };
-            for_each_tile<Second, StaggerX>(second_y, stagger_x);
-            second_y = tmp;
+            for_each_tile<Zero, StaggerX>(laplacian, stagger_x);
+            laplacian = tmp;
         }
 
-        return dyInv*dyInv * second_y + dxInv*dxInv * second_x;
+        return laplacian;
     }
 
     // Find divergence of vector field by central finite differences.
