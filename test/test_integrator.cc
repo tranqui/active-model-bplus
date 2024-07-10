@@ -50,7 +50,7 @@ TEST_CASE("BulkCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{1, 2, 3, 0, 0, 0};
+    Model model{1, 2, 3, 0, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
@@ -80,7 +80,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{0, 0, 0, 1, 0, 0};
+    Model model{0, 0, 0, 1, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
@@ -106,7 +106,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{0, 0, 0, 0, 1, 0};
+    Model model{0, 0, 0, 0, 1, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
@@ -139,7 +139,7 @@ TEST_CASE("SurfaceZetaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 1.25};
-    Model model{0, 0, 0, 0, 0, 1};
+    Model model{0, 0, 0, 0, 0, 1, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
@@ -213,7 +213,7 @@ TEST_CASE("PhaseSeparationTest")
 
     Stencil stencil{1e-2, 1, 1.25};
     // Parameters for phase separation with binodal at \phi = \pm 1.
-    Model model{-0.25, 0, 0.25, 1, 0, 0};
+    Model model{-0.25, 0, 0.25, 1, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
 

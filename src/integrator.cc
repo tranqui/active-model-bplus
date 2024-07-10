@@ -23,6 +23,7 @@ auto model_as_dict(const Model& model)
     dict["kappa"] = model.kappa;
     dict["lamb"] = model.lambda;
     dict["zeta"] = model.zeta;
+    dict["temperature"] = model.temperature;
     return dict;
 };
 
@@ -33,9 +34,11 @@ PYBIND11_MODULE(integrator, m)
     {
         py::class_<Model> py_class(m, "Model");
         py_class.def(py::init<>())
-                .def(py::init<Scalar, Scalar, Scalar, Scalar, Scalar, Scalar>(),
+                .def(py::init<Scalar, Scalar, Scalar, Scalar,
+                              Scalar, Scalar, Scalar>(),
                      py::arg("a"), py::arg("b"), py::arg("c"),
-                     py::arg("kappa"), py::arg("lamb"), py::arg("zeta"))
+                     py::arg("kappa"), py::arg("lamb"), py::arg("zeta"),
+                     py::arg("T"))
                 .def(py::init<Model>(), py::arg("model"))
                 .def_readwrite("a", &Model::a)
                 .def_readwrite("b", &Model::b)
@@ -43,6 +46,7 @@ PYBIND11_MODULE(integrator, m)
                 .def_readwrite("kappa", &Model::kappa)
                 .def_readwrite("lamb", &Model::lambda)
                 .def_readwrite("zeta", &Model::zeta)
+                .def_readwrite("T", &Model::temperature)
                 .def("as_dict", &model_as_dict)
                 .def("as_tuple",
                     [](const Model& model)
