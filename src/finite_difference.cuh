@@ -8,7 +8,48 @@ namespace kernel
 {
     namespace details
     {
-        /// Helper functions.
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar zero_x(T&& tile, int i, int j)
+        {
+            return finite_difference::zero_x<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar zero_y(T&& tile, int i, int j)
+        {
+            return finite_difference::zero_y<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar first_x(T&& tile, int i, int j)
+        {
+            return stencil.dxInv * finite_difference::first_x<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar first_y(T&& tile, int i, int j)
+        {
+            return stencil.dyInv * finite_difference::first_y<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar second_x(T&& tile, int i, int j)
+        {
+            return stencil.dxInv*stencil.dxInv * finite_difference::second_x<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar second_y(T&& tile, int i, int j)
+        {
+            return stencil.dyInv*stencil.dyInv * finite_difference::second_y<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
+
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar laplacian(T&& tile, int i, int j)
+        {
+            return second_x<Order, Stagger>(std::forward<T>(tile), i, j)
+                 + second_y<Order, Stagger>(std::forward<T>(tile), i, j);
+        }
 
         template <typename T>
         __forceinline__ __device__ Scalar square(T&& val)
@@ -16,117 +57,109 @@ namespace kernel
             return val * val;
         }
 
-
-        /** Common interface for derivatives.
-         * @tparam Derived: the specific implementation of the derivatives in each
-         *           dimension. First-order derivatives must defined via
-         *           Derived::first_x and Derived::first_y, whereas second-order
-         *           derivatives are defined with Derived::second_x and Derived::second_y.
-         */
-        template <typename Derived> struct BaseDerivative
+        template <std::size_t Order, StaggerGrid Stagger, typename T>
+        static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
         {
-            template <typename T>
-            static __forceinline__ __device__ Scalar laplacian(T&& tile, int i, int j)
-            {
-                return Derived::second_x(tile, i, j) + Derived::second_y(tile, i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
-            {
-                return square(Derived::first_x(tile, i, j))
-                     + square(Derived::first_y(tile, i, j));
-            }
-        };
-
-        /**
-         * Base for central derivative stencils.
-         * 
-         * @tparam Order: Derivatives must be implemented for the specific
-         *                Order of the numerical approximation, which is done below
-         *                by complete class specialisation.
-         */
-        template <std::size_t Order>
-        struct CentralDerivative : public BaseDerivative<CentralDerivative<Order>>
-        {
-            template <typename T>
-            static __forceinline__ __device__ Scalar first_x(T&& tile, int i, int j)
-            {
-                return stencil.dxInv * finite_difference::first_x<Order>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar first_y(T&& tile, int i, int j)
-            {
-                return stencil.dyInv * finite_difference::first_y<Order>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar second_x(T&& tile, int i, int j)
-            {
-                return stencil.dxInv*stencil.dxInv * finite_difference::second_x<Order>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar second_y(T&& tile, int i, int j)
-            {
-                return stencil.dyInv*stencil.dyInv * finite_difference::second_y<Order>(std::forward<T>(tile), i, j);
-            }
-        };
-
-        /**
-         * Base for derivatives on a staggered grid.
-         * 
-         * Elements of derivatives are in between those of the source field.
-         *   The staggered grid is sometimes written with half-integer
-         *   indices, e.g. in 1d the gradient with field phi:
-         * 
-         *     phi(i - 1)                 phi(i)                 phi(i + 1)
-         *                 grad(i - 1/2)          grad(i + 1/2)
-         * 
-         * We cannot use half-integer indices internally for data representation, so we have
-         *   to use an implicit offset from integral indices.
-         * 
-         * @tparam Order: Derivatives must be implemented for the specific
-         *                Order of the numerical approximation, which is done below
-         *                by complete class specialisation.
-         * @tparam Stagger: direction of staggering of grid from integer indices.
-         *           If Stagger=Left : grad[i] -> grad(i - 1/2)
-         *           If Stagger=Right: grad[i] -> grad(i + 1/2)
-         */
-        template <std::size_t Order, StaggerGrid Stagger>
-        struct StaggeredDerivative
-            : public BaseDerivative<StaggeredDerivative<Order, Stagger>>
-        {
-            template <typename T>
-            static __forceinline__ __device__ Scalar first_x(T&& tile, int i, int j)
-            {
-                return stencil.dxInv * finite_difference::first_x<Order, Stagger>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar first_y(T&& tile, int i, int j)
-            {
-                return stencil.dyInv * finite_difference::first_y<Order, Stagger>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar second_x(T&& tile, int i, int j)
-            {
-                return stencil.dxInv * stencil.dxInv *
-                       finite_difference::first_x<Order, Stagger>(std::forward<T>(tile), i, j);
-            }
-
-            template <typename T>
-            static __forceinline__ __device__ Scalar second_y(T&& tile, int i, int j)
-            {
-                return stencil.dyInv * stencil.dyInv *
-                       finite_difference::first_y<Order, Stagger>(std::forward<T>(tile), i, j);
-            }
-        };
+            return square(first_x<Order, Stagger>(std::forward<T>(tile), i, j))
+                 + square(first_y<Order, Stagger>(std::forward<T>(tile), i, j));
+        }
     }
 
-    using CentralDifference = details::CentralDerivative<order>;
-    template <StaggerGrid Stagger>
-    using StaggeredDifference = details::StaggeredDerivative<order, Stagger>;
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar zero_x(T&& tile, int i, int j)
+    {
+        return details::zero_x<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar zero_y(T&& tile, int i, int j)
+    {
+        return details::zero_y<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar first_x(T&& tile, int i, int j)
+    {
+        return details::first_x<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar first_y(T&& tile, int i, int j)
+    {
+        return details::first_y<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar second_x(T&& tile, int i, int j)
+    {
+        return details::second_x<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar second_y(T&& tile, int i, int j)
+    {
+        return details::second_y<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar laplacian(T&& tile, int i, int j)
+    {
+        return details::laplacian<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    template <StaggerGrid Stagger, typename T>
+    static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
+    {
+        return details::grad_squ<order, Stagger>(std::forward<T>(tile), i, j);
+    }
+
+    /// Aliases to default central grid when Stagger not passed explicitly:
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar zero_x(T&& tile, int i, int j)
+    {
+        return zero_x<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar zero_y(T&& tile, int i, int j)
+    {
+        return zero_y<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar first_x(T&& tile, int i, int j)
+    {
+        return first_x<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar first_y(T&& tile, int i, int j)
+    {
+        return first_y<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar second_x(T&& tile, int i, int j)
+    {
+        return second_x<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar second_y(T&& tile, int i, int j)
+    {
+        return second_y<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar laplacian(T&& tile, int i, int j)
+    {
+        return laplacian<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
+    {
+        return grad_squ<Central>(std::forward<T>(tile), i, j);
+    }
 }

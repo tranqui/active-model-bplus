@@ -97,51 +97,63 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        mu[i][j] -= model.kappa * CentralDifference::laplacian(tile, i, j);
-        mu[i][j] += model.lambda * CentralDifference::grad_squ(tile, i, j);
+        __shared__ Scalar lap[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
+        lap[i][j] = laplacian(tile, i, j);
+        mu[i][j] -= model.kappa * lap[i][j];
+        mu[i][j] += model.lambda * grad_squ(tile, i, j);
 
         constexpr int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
         constexpr int min_index = num_ghost - 1; // need one fewer for this higher derivative
 
         if (threadIdx.y < num_ghost and threadIdx.y >= min_index)
         {
-            mu[i - num_ghost][j] -= model.kappa * CentralDifference::laplacian(tile, i - num_ghost, j);
-            mu[i + row_shift][j] -= model.kappa * CentralDifference::laplacian(tile, i + row_shift, j);
+            lap[i - num_ghost][j] = laplacian(tile, i - num_ghost, j);
+            lap[i + row_shift][j] = laplacian(tile, i + row_shift, j);
 
-            mu[i - num_ghost][j] += model.lambda * CentralDifference::grad_squ(tile, i - num_ghost, j);
-            mu[i + row_shift][j] += model.lambda * CentralDifference::grad_squ(tile, i + row_shift, j);
+            mu[i - num_ghost][j] -= model.kappa * lap[i - num_ghost][j];
+            mu[i + row_shift][j] -= model.kappa * lap[i + row_shift][j];
+
+            mu[i - num_ghost][j] += model.lambda * grad_squ(tile, i - num_ghost, j);
+            mu[i + row_shift][j] += model.lambda * grad_squ(tile, i + row_shift, j);
         }
 
         if (threadIdx.x < num_ghost and threadIdx.x >= min_index)
         {
-            mu[i][j - num_ghost] -= model.kappa * CentralDifference::laplacian(tile, i, j - num_ghost);
-            mu[i][j + col_shift] -= model.kappa * CentralDifference::laplacian(tile, i, j + col_shift);
+            lap[i][j - num_ghost] = laplacian(tile, i, j - num_ghost);
+            lap[i][j + col_shift] = laplacian(tile, i, j + col_shift);
 
-            mu[i][j - num_ghost] += model.lambda * CentralDifference::grad_squ(tile, i, j - num_ghost);
-            mu[i][j + col_shift] += model.lambda * CentralDifference::grad_squ(tile, i, j + col_shift);
+            mu[i][j - num_ghost] -= model.kappa * lap[i][j - num_ghost];
+            mu[i][j + col_shift] -= model.kappa * lap[i][j + col_shift];
+
+            mu[i][j - num_ghost] += model.lambda * grad_squ(tile, i, j - num_ghost);
+            mu[i][j + col_shift] += model.lambda * grad_squ(tile, i, j + col_shift);
         }
 
         if (threadIdx.y < num_ghost and threadIdx.y >= min_index and threadIdx.x < num_ghost and threadIdx.x >= min_index)
         {
-            mu[i - num_ghost][j - num_ghost] -= model.kappa * CentralDifference::laplacian(tile, i - num_ghost, j - num_ghost);
-            mu[i - num_ghost][j + col_shift] -= model.kappa * CentralDifference::laplacian(tile, i - num_ghost, j + col_shift);
-            mu[i + row_shift][j - num_ghost] -= model.kappa * CentralDifference::laplacian(tile, i + row_shift, j - num_ghost);
-            mu[i + row_shift][j + col_shift] -= model.kappa * CentralDifference::laplacian(tile, i + row_shift, j + col_shift);
+            lap[i - num_ghost][j - num_ghost] = laplacian(tile, i - num_ghost, j - num_ghost);
+            lap[i - num_ghost][j + col_shift] = laplacian(tile, i - num_ghost, j + col_shift);
+            lap[i + row_shift][j - num_ghost] = laplacian(tile, i + row_shift, j - num_ghost);
+            lap[i + row_shift][j + col_shift] = laplacian(tile, i + row_shift, j + col_shift);
 
-            mu[i - num_ghost][j - num_ghost] += model.lambda * CentralDifference::grad_squ(tile, i - num_ghost, j - num_ghost);
-            mu[i - num_ghost][j + col_shift] += model.lambda * CentralDifference::grad_squ(tile, i - num_ghost, j + col_shift);
-            mu[i + row_shift][j - num_ghost] += model.lambda * CentralDifference::grad_squ(tile, i + row_shift, j - num_ghost);
-            mu[i + row_shift][j + col_shift] += model.lambda * CentralDifference::grad_squ(tile, i + row_shift, j + col_shift);
+            mu[i - num_ghost][j - num_ghost] -= model.kappa * lap[i - num_ghost][j - num_ghost];
+            mu[i - num_ghost][j + col_shift] -= model.kappa * lap[i - num_ghost][j + col_shift];
+            mu[i + row_shift][j - num_ghost] -= model.kappa * lap[i + row_shift][j - num_ghost];
+            mu[i + row_shift][j + col_shift] -= model.kappa * lap[i + row_shift][j + col_shift];
+
+            mu[i - num_ghost][j - num_ghost] += model.lambda * grad_squ(tile, i - num_ghost, j - num_ghost);
+            mu[i - num_ghost][j + col_shift] += model.lambda * grad_squ(tile, i - num_ghost, j + col_shift);
+            mu[i + row_shift][j - num_ghost] += model.lambda * grad_squ(tile, i + row_shift, j - num_ghost);
+            mu[i + row_shift][j + col_shift] += model.lambda * grad_squ(tile, i + row_shift, j + col_shift);
         }
 
         __syncthreads();
 
-        current[0][index] = -StaggeredDifference<Right>::first_y(mu, i, j);
-        current[1][index] = -StaggeredDifference<Right>::first_x(mu, i, j);
+        current[0][index] = -first_y<Right>(mu, i, j);
+        current[1][index] = -first_x<Right>(mu, i, j);
 
-        Scalar lap = StaggeredDifference<Right>::laplacian(tile, i, j);
-        current[0][index] += model.zeta * lap * StaggeredDifference<Right>::first_y(tile, i, j);
-        current[1][index] += model.zeta * lap * StaggeredDifference<Right>::first_x(tile, i, j);
+        current[0][index] += model.zeta * zero_y<Right>(lap, i, j) * first_y<Right>(tile, i, j);
+        current[1][index] += model.zeta * zero_x<Right>(lap, i, j) * first_x<Right>(tile, i, j);
     }
 
     __global__ void step(DeviceField field, DeviceCurrent current)
@@ -191,8 +203,7 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = StaggeredDifference<Left>::first_y(tile[0], i, j)
-                    + StaggeredDifference<Left>::first_x(tile[1], i, j);
+        Scalar divJ = first_y<Left>(tile[0], i, j) + first_x<Left>(tile[1], i, j);
         field[index] -= stencil.dt * divJ;
     }
 

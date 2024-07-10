@@ -14,8 +14,32 @@ namespace finite_difference
 
     namespace details
     {
-        /// Finite difference coefficients for 0th, 1st and 2nd derivatives at various orders of expansion.
+        /// Finite difference coefficients for 0th, 1st and 2nd derivatives at various
+        // orders of expansion.
 
+        /**
+         * Coefficients for derivatives on different grids.
+         * 
+         * If Stagger=Central, then the derivatives are calculated at the same points
+         *   as the support points.
+         * 
+         * If Stagger=Right or Left, then elements of derivatives are in between those
+         *   of the source field. The staggered grid is sometimes written with half-integer
+         *   indices, e.g. in 1d the gradient with field phi:
+         * 
+         *     phi(i - 1)                 phi(i)                 phi(i + 1)
+         *                 grad(i - 1/2)          grad(i + 1/2)
+         * 
+         * We cannot use half-integer indices internally for data representation, so we have
+         *   to use an implicit offset from integral indices.
+         * 
+         * @tparam Order: Derivatives must be implemented for the specific
+         *                Order of the numerical approximation, which is done below
+         *                by complete class specialisation.
+         * @tparam Stagger: direction of staggering of grid from integer indices.
+         *           If Stagger=Left : grad[i] -> grad(i - 1/2)
+         *           If Stagger=Right: grad[i] -> grad(i + 1/2)
+         */
         template <std::size_t Order, StaggerGrid Stagger> struct Coefficients { };
 
         template <>

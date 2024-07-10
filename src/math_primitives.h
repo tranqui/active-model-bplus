@@ -20,5 +20,5 @@ using HostCurrent = HostGradient;
 using DeviceCurrent = DeviceGradient;
 
 // Direction of index offset when derivatives are taken on staggered grids.
-// See `StaggeredDerivative` in finite_differences.cuh for more info.
+// See `Coefficients` in finite_differences.h for more info.
 enum StaggerGrid { Left, Central, Right };
