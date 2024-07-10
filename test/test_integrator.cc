@@ -56,31 +56,20 @@ TEST_CASE("BulkCurrentTest")
     Field field = simulation.get_field();
 
     // Bulk chemical potential is evaluated point-wise
-    Field mu(Ny, Nx);
+    Field expected_mu(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
-            mu(i, j) = bulk_chemical_potential(field(i, j), model);
+            expected_mu(i, j) = bulk_chemical_potential(field(i, j), model);
 
-    // Current $\vec{J} = - \nabla \mu$:
-    Current expected_J = gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
-
-    Current actual_J = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
-    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+    Field actual_mu = simulation.get_chemical_potential();
+    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(mu, stencil);
-        CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
-    }
-
-    {
-        // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = divergence<Left>(actual_J, stencil);
+        Field expected_divJ = -laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
     }
 }
@@ -97,26 +86,16 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field field = simulation.get_field();
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
-    Field mu = -model.kappa * laplacian(field, stencil);
-    Current expected_J = gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
-
-    Current actual_J = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
-    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+    Field expected_mu = -model.kappa * laplacian(field, stencil);
+    Field actual_mu = simulation.get_chemical_potential();
+    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
-
-    {
-        // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = divergence<Left>(actual_J, stencil);
+        Field expected_divJ = -laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
@@ -135,31 +114,21 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     // Current $\vec{J} = -\nabla \mu$ with $\mu = \lambda |\nabla\phi|^2$:
 
     Gradient grad = gradient(field, stencil);
-    Field mu = Field::Zero(Ny, Nx);
+    Field expected_mu = Field::Zero(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
             for (int c = 0; c < d; ++c)
-                mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
+                expected_mu(i, j) += model.lambda * grad[c](i,j) * grad[c](i,j);
 
-    Current expected_J = gradient<Right>(mu, stencil);
-    for (int c = 0; c < d; ++c) expected_J[c] *= -1;
-
-    Current actual_J = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
-    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+    Field actual_mu = simulation.get_chemical_potential();
+    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
-
-    {
-        // Alternative: $-\nabla \cdot \vec{J}$ directly.
-        Field expected_divJ = divergence<Left>(actual_J, stencil);
+        Field expected_divJ = -laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
@@ -177,26 +146,30 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap_y = laplacian<Right, Central>(field, stencil);
-    Field lap_x = laplacian<Central, Right>(field, stencil);
-    Gradient grad = gradient<Right>(field, stencil);
+    Field lap = laplacian(field, stencil);
+    Gradient grad = gradient(field, stencil);
 
-    Current expected_J{Field(Ny, Nx), Field(Ny, Nx)};
+    Current expected_partial_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
         {
-            expected_J[0](i,j) = model.zeta * lap_y(i,j) * grad[0](i,j);
-            expected_J[1](i,j) = model.zeta * lap_x(i,j) * grad[1](i,j);
+            expected_partial_J[0](i,j) = model.zeta * lap(i,j) * grad[0](i,j);
+            expected_partial_J[1](i,j) = model.zeta * lap(i,j) * grad[1](i,j);
         }
 
-    Current actual_J = simulation.get_current();
-    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
-    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+    Current actual_partial_J = simulation.get_nonconservative_current();
+    CHECK(is_equal<tight_tol>(expected_partial_J[0], actual_partial_J[0]));
+    CHECK(is_equal<tight_tol>(expected_partial_J[1], actual_partial_J[1]));
+
+    Field actual_mu = simulation.get_chemical_potential();
+    Field expected_mu = Field::Zero(Ny, Nx);
+    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
     simulation.run(1);
+
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = divergence<Left>(actual_J, stencil);
-    CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
+    Field expected_divJ = divergence(actual_partial_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("ConservationTest")

@@ -40,9 +40,12 @@ namespace kernel
         return model.a + 2 * model.b * field + 3 * model.c * field * field;
     }
 
-    /// Kernel to determine current.
+    /// Kernel to determine current and chemical potential.
 
-    __global__ void calculate_current(DeviceField field, DeviceCurrent current)
+    // Note this calculation determines $\mu$ and the non-conservative current separately
+    __global__ void calculate_current(DeviceField field,
+                                      DeviceField chemical_potential,
+                                      DeviceCurrent circulating_current)
     {
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -56,9 +59,7 @@ namespace kernel
         // Load tile into shared memory.
 
         __shared__ Scalar tile[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
-        __shared__ Scalar mu[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
         tile[i][j] = field[index];
-        mu[i][j] = bulk_chemical_potential(tile[i][j]);
 
         // Fill in ghost points.
 
@@ -66,18 +67,12 @@ namespace kernel
         {
             tile[i - num_ghost][j] = field[col + ((row - num_ghost + nrows) % nrows) * ncols];
             tile[i + tile_rows][j] = field[col + ((row + tile_rows) % nrows) * ncols];
-
-            mu[i - num_ghost][j] = bulk_chemical_potential(tile[i - num_ghost][j]);
-            mu[i + tile_rows][j] = bulk_chemical_potential(tile[i + tile_rows][j]);
         }
 
         if (threadIdx.x < num_ghost)
         {
             tile[i][j - num_ghost] = field[(col - num_ghost + ncols) % ncols + row * ncols];
             tile[i][j + tile_cols] = field[(col + tile_cols) % ncols         + row * ncols];
-
-            mu[i][j - num_ghost] = bulk_chemical_potential(tile[i][j - num_ghost]);
-            mu[i][j + tile_cols] = bulk_chemical_potential(tile[i][j + tile_cols]);
         }
 
         if (threadIdx.x < num_ghost and threadIdx.y < num_ghost)
@@ -86,77 +81,23 @@ namespace kernel
             tile[i - num_ghost][j + tile_cols] = field[(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
             tile[i + tile_rows][j - num_ghost] = field[(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
             tile[i + tile_rows][j + tile_cols] = field[(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
-
-            mu[i - num_ghost][j - num_ghost] = bulk_chemical_potential(tile[i - num_ghost][j - num_ghost]);
-            mu[i - num_ghost][j + tile_cols] = bulk_chemical_potential(tile[i - num_ghost][j + tile_cols]);
-            mu[i + tile_rows][j - num_ghost] = bulk_chemical_potential(tile[i + tile_rows][j - num_ghost]);
-            mu[i + tile_rows][j + tile_cols] = bulk_chemical_potential(tile[i + tile_rows][j + tile_cols]);
         }
 
         __syncthreads();
 
         // Surface terms involve derivatives of the field.
 
-        __shared__ Scalar lap[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
-        lap[i][j] = laplacian(tile, i, j);
-        mu[i][j] -= model.kappa * lap[i][j];
-        mu[i][j] += model.lambda * grad_squ(tile, i, j);
+        Scalar lap = laplacian(tile, i, j);
+        chemical_potential[index] = bulk_chemical_potential(tile[i][j])
+                                    - model.kappa * lap
+                                    + model.lambda * grad_squ(tile, i, j);
 
-        constexpr int row_shift{tile_rows - 1}, col_shift{tile_cols - 1};
-        constexpr int min_index = num_ghost - 1; // need one fewer for this higher derivative
-
-        if (threadIdx.y < num_ghost and threadIdx.y >= min_index)
-        {
-            lap[i - num_ghost][j] = laplacian(tile, i - num_ghost, j);
-            lap[i + row_shift][j] = laplacian(tile, i + row_shift, j);
-
-            mu[i - num_ghost][j] -= model.kappa * lap[i - num_ghost][j];
-            mu[i + row_shift][j] -= model.kappa * lap[i + row_shift][j];
-
-            mu[i - num_ghost][j] += model.lambda * grad_squ(tile, i - num_ghost, j);
-            mu[i + row_shift][j] += model.lambda * grad_squ(tile, i + row_shift, j);
-        }
-
-        if (threadIdx.x < num_ghost and threadIdx.x >= min_index)
-        {
-            lap[i][j - num_ghost] = laplacian(tile, i, j - num_ghost);
-            lap[i][j + col_shift] = laplacian(tile, i, j + col_shift);
-
-            mu[i][j - num_ghost] -= model.kappa * lap[i][j - num_ghost];
-            mu[i][j + col_shift] -= model.kappa * lap[i][j + col_shift];
-
-            mu[i][j - num_ghost] += model.lambda * grad_squ(tile, i, j - num_ghost);
-            mu[i][j + col_shift] += model.lambda * grad_squ(tile, i, j + col_shift);
-        }
-
-        if (threadIdx.y < num_ghost and threadIdx.y >= min_index and threadIdx.x < num_ghost and threadIdx.x >= min_index)
-        {
-            lap[i - num_ghost][j - num_ghost] = laplacian(tile, i - num_ghost, j - num_ghost);
-            lap[i - num_ghost][j + col_shift] = laplacian(tile, i - num_ghost, j + col_shift);
-            lap[i + row_shift][j - num_ghost] = laplacian(tile, i + row_shift, j - num_ghost);
-            lap[i + row_shift][j + col_shift] = laplacian(tile, i + row_shift, j + col_shift);
-
-            mu[i - num_ghost][j - num_ghost] -= model.kappa * lap[i - num_ghost][j - num_ghost];
-            mu[i - num_ghost][j + col_shift] -= model.kappa * lap[i - num_ghost][j + col_shift];
-            mu[i + row_shift][j - num_ghost] -= model.kappa * lap[i + row_shift][j - num_ghost];
-            mu[i + row_shift][j + col_shift] -= model.kappa * lap[i + row_shift][j + col_shift];
-
-            mu[i - num_ghost][j - num_ghost] += model.lambda * grad_squ(tile, i - num_ghost, j - num_ghost);
-            mu[i - num_ghost][j + col_shift] += model.lambda * grad_squ(tile, i - num_ghost, j + col_shift);
-            mu[i + row_shift][j - num_ghost] += model.lambda * grad_squ(tile, i + row_shift, j - num_ghost);
-            mu[i + row_shift][j + col_shift] += model.lambda * grad_squ(tile, i + row_shift, j + col_shift);
-        }
-
-        __syncthreads();
-
-        current[0][index] = -first_y<Right>(mu, i, j);
-        current[1][index] = -first_x<Right>(mu, i, j);
-
-        current[0][index] += model.zeta * zero_y<Right>(lap, i, j) * first_y<Right>(tile, i, j);
-        current[1][index] += model.zeta * zero_x<Right>(lap, i, j) * first_x<Right>(tile, i, j);
+        circulating_current[0][index] = model.zeta * lap * first_y(tile, i, j);
+        circulating_current[1][index] = model.zeta * lap * first_x(tile, i, j);
     }
 
-    __global__ void step(DeviceField field, DeviceCurrent current)
+    __global__ void step(DeviceField field, DeviceField chemical_potential,
+                         DeviceCurrent current)
     {
         static constexpr int num_ghost = num_ghost_integrator;
 
@@ -171,40 +112,53 @@ namespace kernel
 
         // Load current tile into shared memory.
 
-        __shared__ Scalar tile[d][tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
+        __shared__ Scalar mu[tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
+        __shared__ Scalar J[d][tile_rows + 2*num_ghost][tile_cols + 2*num_ghost];
 
         for (int c = 0; c < d; ++c)
         {
-            tile[c][i][j] = current[c][index];
+            mu[i][j] = chemical_potential[index];
+            J[c][i][j] = current[c][index];
 
             // Fill in ghost points.
 
             if (threadIdx.y < num_ghost)
             {
-                tile[c][i - num_ghost][j] = current[c][col + ((row - num_ghost + nrows) % nrows) * ncols];
-                tile[c][i + tile_rows][j] = current[c][col + ((row + tile_rows) % nrows) * ncols];
+                mu[i - num_ghost][j] = chemical_potential[col + ((row - num_ghost + nrows) % nrows) * ncols];
+                mu[i + tile_rows][j] = chemical_potential[col + ((row + tile_rows) % nrows) * ncols];
+
+                J[c][i - num_ghost][j] = current[c][col + ((row - num_ghost + nrows) % nrows) * ncols];
+                J[c][i + tile_rows][j] = current[c][col + ((row + tile_rows) % nrows) * ncols];
             }
 
             if (threadIdx.x < num_ghost)
             {
-                tile[c][i][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + row * ncols];
-                tile[c][i][j + tile_cols] = current[c][(col + tile_cols) % ncols         + row * ncols];
+                mu[i][j - num_ghost] = chemical_potential[(col - num_ghost + ncols) % ncols + row * ncols];
+                mu[i][j + tile_cols] = chemical_potential[(col + tile_cols) % ncols         + row * ncols];
+
+                J[c][i][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + row * ncols];
+                J[c][i][j + tile_cols] = current[c][(col + tile_cols) % ncols         + row * ncols];
             }
 
             if (threadIdx.x < num_ghost and threadIdx.y < num_ghost)
             {
-                tile[c][i - num_ghost][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row - num_ghost + nrows) % nrows) * ncols];
-                tile[c][i - num_ghost][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
-                tile[c][i + tile_rows][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
-                tile[c][i + tile_rows][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
+                mu[i - num_ghost][j - num_ghost] = chemical_potential[(col - num_ghost + ncols) % ncols + ((row - num_ghost + nrows) % nrows) * ncols];
+                mu[i - num_ghost][j + tile_cols] = chemical_potential[(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
+                mu[i + tile_rows][j - num_ghost] = chemical_potential[(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
+                mu[i + tile_rows][j + tile_cols] = chemical_potential[(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
+
+                J[c][i - num_ghost][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row - num_ghost + nrows) % nrows) * ncols];
+                J[c][i - num_ghost][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row - num_ghost + nrows) % nrows) * ncols];
+                J[c][i + tile_rows][j - num_ghost] = current[c][(col - num_ghost + ncols) % ncols + ((row + tile_rows) % nrows) * ncols];
+                J[c][i + tile_rows][j + tile_cols] = current[c][(col + tile_cols) % ncols         + ((row + tile_rows) % nrows) * ncols];
             }
         }
 
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = first_y<Left>(tile[0], i, j) + first_x<Left>(tile[1], i, j);
-        field[index] -= stencil.dt * divJ;
+        Scalar divJ = first_y(J[0], i, j) + first_x(J[1], i, j);
+        field[index] -= stencil.dt * (divJ - laplacian(mu, i, j));
     }
 
     // Basic kernel to check for errors (e.g. if field become nan or inf).
@@ -231,6 +185,7 @@ Integrator::Integrator(const HostFieldRef& initial_field,
     // Initialise device memory.
     cudaMallocPitch(&field, &field_pitch, pitch_width, nrows);
     cudaMemcpy(field, initial_field.data(), mem_size, cudaMemcpyHostToDevice);
+    cudaMallocPitch(&chemical_potential, &chemical_potential_pitch, pitch_width, nrows);
     Field empty = Field::Zero(nrows, ncols);
     for (int c = 0; c < d; ++c)
     {
@@ -245,9 +200,14 @@ Integrator::Integrator(Integrator&& other) noexcept
     : stencil(other.stencil), model(other.model),
       nrows(other.nrows), ncols(other.ncols),
       pitch_width(other.pitch_width), mem_size(other.mem_size),
-      field_pitch(std::move(other.field_pitch)), field(std::move(other.field)),
-      current_pitch(std::move(other.current_pitch)), current(std::move(other.current)),
-      timestep(other.timestep), timestep_calculated_current(other.timestep_calculated_current)
+      field_pitch(std::move(other.field_pitch)),
+      field(std::move(other.field)),
+      chemical_potential_pitch(std::move(other.chemical_potential_pitch)),
+      chemical_potential(std::move(other.chemical_potential)),
+      current_pitch(std::move(other.current_pitch)),
+      current(std::move(other.current)),
+      timestep(other.timestep),
+      timestep_calculated_current(other.timestep_calculated_current)
 {
     kernel::throw_errors();
 }
@@ -255,6 +215,7 @@ Integrator::Integrator(Integrator&& other) noexcept
 Integrator::~Integrator()
 {
     cudaFree(field);
+    cudaFree(chemical_potential);
     for (int c = 0; c < d; ++c) cudaFree(current[c]);
 }
 
@@ -275,10 +236,17 @@ HostField Integrator::get_field() const
     return out;
 }
 
-HostCurrent Integrator::get_current()
+HostField Integrator::get_chemical_potential()
 {
     calculate_current();
+    HostField out(nrows, ncols);
+    cudaMemcpy(out.data(), chemical_potential, mem_size, cudaMemcpyDeviceToHost);
+    return out;
+}
 
+HostCurrent Integrator::get_nonconservative_current()
+{
+    calculate_current();
     HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
     for (int c = 0; c < d; ++c)
         cudaMemcpy(out[c].data(), current[c], mem_size, cudaMemcpyDeviceToHost);
@@ -302,7 +270,7 @@ void Integrator::calculate_current()
     const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
     const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
                          (nrows + block_dim.y - 1) / block_dim.y);
-    kernel::calculate_current<<<grid_size, block_dim>>>(field, current);
+    kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current);
     cudaDeviceSynchronize();
     kernel::throw_errors();
 
@@ -319,8 +287,8 @@ void Integrator::run(int nsteps)
 
     for (int i = 0; i < nsteps; ++i)
     {
-        kernel::calculate_current<<<grid_size, block_dim>>>(field, current);
-        kernel::step<<<grid_size, block_dim>>>(field, current);
+        kernel::calculate_current<<<grid_size, block_dim>>>(field, chemical_potential, current);
+        kernel::step<<<grid_size, block_dim>>>(field, chemical_potential, current);
     }
 
     cudaDeviceSynchronize();

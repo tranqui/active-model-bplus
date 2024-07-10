@@ -38,7 +38,8 @@ public:
     Stencil get_stencil() const;
     Model get_model() const;
     HostField get_field() const;
-    HostCurrent get_current();
+    HostField get_chemical_potential();
+    HostCurrent get_nonconservative_current();
 
     inline int get_timestep() const
     {
@@ -60,6 +61,8 @@ protected:
 
     size_t field_pitch;
     DeviceField field;
+    size_t chemical_potential_pitch;
+    DeviceField chemical_potential;
     std::array<size_t, d> current_pitch;
     DeviceCurrent current;
 
