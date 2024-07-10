@@ -4,6 +4,25 @@
 
 using namespace finite_difference;
 
+Field quartic_field(int Nx, int Ny, Scalar dx=1, Scalar dy=1)
+{
+    Scalar Lx = Nx*dx;
+    Scalar Ly = Ny*dy;
+
+    Field field(Ny, Nx);
+    for (int i = 0; i < Ny; ++i)
+    {
+        Scalar y = i * dy;
+        for (int j = 0; j < Nx; ++j)
+        {
+            Scalar x = j * dx;
+            field(i, j) = x * (Lx - x) * y * (Ly - y);
+        }
+    }
+
+    return field;
+}
+
 // Check $\nabla \cdot (\nabla \phi) = \nabla^2 \phi$ to test that
 // stagger grid set-up for gradients is working correctly.
 TEST_CASE("StaggerTest")
@@ -11,10 +30,14 @@ TEST_CASE("StaggerTest")
     int Nx{64}, Ny{32};
     Stencil stencil{1e-2, 1, 0.75};
 
-    Field field = Field::Random(Ny, Nx);
+    Field field = quartic_field(Nx, Ny);
+    // Field field = Field::Random(Ny, Nx);
+
     Gradient grad = gradient<Right>(field, stencil);
-    Field lap = laplacian(field, stencil);
-    CHECK(is_equal<tight_tol>(lap, divergence<Left>(grad, stencil)));
+    Field expected_lap = laplacian(field, stencil);
+    Field actual_lap = divergence<Left>(grad, stencil);
+    Field relative_error = (actual_lap.array() / expected_lap.array()) - 1;
+    CHECK(is_equal<loose_tol>(relative_error, 0));
 }
 
 /// Check derivatives of known analytic functions

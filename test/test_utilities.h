@@ -58,6 +58,28 @@ bool is_equal(T1&& a, T2&& b)
     return true;
 }
 
+template <Scalar tolerance, typename T,
+          typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T>>::value>>
+bool is_equal(T&& a, Scalar b)
+{
+    for (int i = 0; i < a.rows(); ++i)
+        for (int j = 0; j < a.cols(); ++j)
+            if constexpr (tolerance == 0)
+            {
+                if (a(i,j) != b) return false;
+            }
+            else if (std::abs(a(i,j) - b) > tolerance) return false;
+    return true;
+}
+
+template <Scalar tolerance, typename T,
+          typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T>>::value>>
+bool is_equal(Scalar a, T&& b)
+{
+    return is_equal(std::forward<T>(b), a);
+}
+
+
 template <typename T1, typename T2,
           typename = std::enable_if_t<is_eigen_matrix<std::decay_t<T1>>::value and
                                       is_eigen_matrix<std::decay_t<T2>>::value>>
