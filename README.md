@@ -3,21 +3,12 @@
 ## Overview
 
 This package implements Active Model B+ which is the most general field theory proposed for scalar active matter to date. It has the following form for a scalar field $\phi$:
-$$
-\partial_t \phi
-  =
-  \nabla^2{\left(
-  \frac{\delta F}{\delta \phi}
-  + \lambda |\nabla\phi|^2
-  \right)}
-  - \zeta \nabla \cdot{\left( (\nabla^2 \phi) \nabla\phi \right)}
-  - \sqrt{2 T} \nabla \cdot \vec\Lambda\,,
-$$
+$$\partial_t \phi = \nabla^2{\left( \frac{\delta F}{\delta \phi} + \lambda |\nabla\phi|^2 \right)} - \zeta \nabla \cdot{\left( (\nabla^2 \phi) \nabla\phi \right)} - \sqrt{2 T} \nabla \cdot \vec\Lambda\,,$$
 where $\vec\Lambda$ is a Gaussian white noise term with magnitude set by the temperature $T$ and
 $$F[\phi] = \int \mathrm{d} V \left( f(\phi) + \frac{\kappa}{2} |\nabla\phi|^2 \right)$$
 is the standard free energy functional sufficient to describe an equilibrium system undergoing liquid-gas phase separation (cf. the [Cahn-Hilliard equation](https://en.wikipedia.org/wiki/Cahn%E2%80%93Hilliard_equation)).
 The bulk free energy is
-$$f(\phi) = \frac{a}{2} \phi^2 + \frac{b}{3} \phi^3 + \frac{c}{4} \phi^4 + \mathcal{O}(\phi^5)\,.$$
+$$f(\phi) = \frac{a}{2} \phi^2 + \frac{b}{3} \phi^3 + \frac{c}{4} \phi^4 + \mathcal{O}(\phi^5).$$
 The coefficients $\lambda$ and $\zeta$ parameterise the activity in the system.
 
 This package aims to provide tools to do mean-field calculations with this model, as well as to directly simulate it on a square grid with CUDA acceleration.
