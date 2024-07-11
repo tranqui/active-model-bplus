@@ -1,5 +1,5 @@
-*.pdf
-*.png
+examples/*.pdf
+examples/*.png
 *.o
 build/
 *.so
