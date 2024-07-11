@@ -124,7 +124,7 @@ inline Scalar bulk_chemical_potential(Scalar field, const Model& model)
 
 namespace finite_difference
 {
-    // Loop through each tile for given stencil and apply operation.
+    // Loop through each 1d tile for given stencil and apply operation.
     template <Derivative D, StaggerGrid Stagger, typename Operation>
     inline void for_each_tile(Field field, Operation operation)
     {
@@ -267,5 +267,114 @@ namespace finite_difference
     inline Field divergence(const Gradient& grad, Stencil stencil)
     {
         return divergence<Central>(grad, stencil);
+    }
+
+    // Loop through each 2d NxN square tile for given stencil and apply operation.
+    // NB: current we only have implementation for N=3
+    // template <std::size_t N, typename Operation>
+    template <typename Operation>
+    inline void for_each_square_tile(Field field, Operation operation)
+    {
+        static constexpr int N = 3;
+        static_assert(N % 2 == 1); // must be odd for central stencil
+        const auto Ny{field.rows()}, Nx{field.cols()};
+
+        for (int i = 0; i < Ny; ++i)
+        {
+            // Nearest neighbours in y-direction w/ periodic boundaries:
+            std::array<int, N> iy;
+            for (int k = 0; k < N; ++k)
+            {
+                iy[k] = i + k + N/2;
+                if (iy[k] < 0) iy[k] += Ny;
+                if (iy[k] >= Ny) iy[k] -= Ny;
+            }
+
+            for (int j = 0; j < Nx; ++j)
+            {
+                // Nearest neighbours in x-direction w/ periodic boundaries:
+                std::array<int, N> ix;
+                for (int k = 0; k < N; ++k)
+                {
+                    ix[k] = j + k - N/2;
+                    if (ix[k] < 0) ix[k] += Nx;
+                    if (ix[k] >= Nx) ix[k] -= Nx;
+                }
+
+                // Retrieve field points indexed by stencil.
+                std::array<std::array<Scalar, N>, N> tile;
+                for (int k = 0; k < N; ++k)
+                    for (int l = 0; l < N; ++l)
+                        tile[k][l] = field(iy[k], ix[l]);
+
+                operation(i, j, tile);
+            }
+        }
+    }
+
+    // Find gradient of field by central finite differences.
+    // template <std::size_t N>
+    inline Gradient isotropic_gradient(Field field, Stencil stencil)
+    {
+        static constexpr int N = 3; // currently only implemented on N=3
+        static_assert(N % 2 == 1); // must be odd for central stencil
+
+        const auto Ny{field.rows()}, Nx{field.cols()};
+        Gradient gradient{Field(Ny, Nx), Field(Ny, Nx)};
+
+        auto grad = [&](int i, int j, auto tile)
+        {
+            gradient[0](i, j) = isotropic::first_y(tile, N/2, N/2) / stencil.dy;
+            gradient[1](i, j) = isotropic::first_x(tile, N/2, N/2) / stencil.dx;
+        };
+        for_each_square_tile(field, grad);
+
+        return gradient;
+    }
+
+    // Find laplacian of field by central finite differences.
+    // template <std::size_t N>
+    inline Field isotropic_laplacian(const FieldRef& field, Stencil stencil)
+    {
+        static constexpr int N = 3; // currently only implemented on N=3
+        static_assert(N % 2 == 1); // must be odd for central stencil
+
+        const Scalar dyInv{1/stencil.dy}, dxInv{1/stencil.dx};
+        const auto Ny{field.rows()}, Nx{field.cols()};
+        Field laplacian(Ny, Nx);
+
+        auto lap = [&](int i, int j, auto tile)
+        {
+            laplacian(i, j) = dxInv*dyInv * isotropic::laplacian(tile, N/2, N/2);
+        };
+        for_each_square_tile(field, lap);
+
+        return laplacian;
+    }
+
+    // Find divergence of vector field by central finite differences.
+    // template <std::size_t N>
+    inline Field isotropic_divergence(const Gradient& grad, Stencil stencil)
+    {
+        static constexpr int N = 3; // currently only implemented on N=3
+        static_assert(N % 2 == 1); // must be odd for central stencil
+
+        const Scalar dyInv{1/stencil.dy}, dxInv{1/stencil.dx};
+        const auto Ny{grad[0].rows()}, Nx{grad[0].cols()};
+        Field divergence = Field::Zero(Ny, Nx);
+
+        auto div_y = [&](int i, int j, auto tile)
+        {
+            divergence(i, j) += dyInv * isotropic::first_y(tile, N/2, N/2);
+        };
+        auto div_x = [&](int i, int j, auto tile)
+        {
+            divergence(i, j) += dxInv * isotropic::first_x(tile, N/2, N/2);
+        };
+
+        for_each_square_tile(grad[0], div_y);
+        for_each_square_tile(grad[1], div_x);
+
+        return divergence;
     }
 }

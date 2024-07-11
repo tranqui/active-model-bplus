@@ -310,4 +310,90 @@ namespace finite_difference
     {
         return second_y<Order, Central>(std::forward<T>(data), i, j);
     }
+
+    namespace isotropic
+    {
+        // Isotropic operators on a 3x3 stencil. The order of these is fixed
+        // for the time being, until I can figure out how to generalise.
+        // These stencils minimise errors due to the square grid. See e.g.:
+        // https://en.wikipedia.org/wiki/Nine-point_stencil#Implementation
+
+        CUDA_HOST_DEVICE constexpr inline Scalar laplacian_coefficients(int i, int j)
+        {
+            // Standard isotropic coefficients.
+            // Scalar coefficients[3][3] = {
+            //     {1./6,   4./6, 1./6},
+            //     {4./6, -20./6, 4./6},
+            //     {1./6,   4./6, 1./6}
+            // };
+            // Tjhung et al (2018) use these, cf.:
+            // https://elsentjhung.github.io/posts/2020/12/discretization/
+            // https://github.com/elsentjhung/active-model-B-plus
+            Scalar coefficients[3][3] = {
+                {-0.5,  2, -0.5},
+                {   2, -6,    2},
+                {-0.5,  2, -0.5}
+            };
+            return coefficients[i][j];
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar laplacian(T&& data, int i, int j)
+        {
+            return laplacian_coefficients(0,0) * data[i-1][j-1]
+                 + laplacian_coefficients(0,1) * data[i-1][ j ]
+                 + laplacian_coefficients(0,2) * data[i-1][j+1]
+                 + laplacian_coefficients(1,0) * data[ i ][j-1]
+                 + laplacian_coefficients(1,1) * data[ i ][ j ]
+                 + laplacian_coefficients(1,2) * data[ i ][j+1]
+                 + laplacian_coefficients(2,0) * data[i+1][j-1]
+                 + laplacian_coefficients(2,1) * data[i+1][ j ]
+                 + laplacian_coefficients(2,2) * data[i+1][j+1];
+        }
+
+        // Cf. https://elsentjhung.github.io/posts/2020/12/discretization/
+        // and https://github.com/elsentjhung/active-model-B-plus
+        CUDA_HOST_DEVICE constexpr inline Scalar first_x_coefficients(int i, int j)
+        {
+            Scalar coefficients[3][3] = {
+                {-1./10, 0, 1./10},
+                {-3./10, 0, 3./10},
+                {-1./10, 0, 1./10}
+            };
+            return coefficients[i][j];
+        }
+
+        CUDA_HOST_DEVICE constexpr inline Scalar first_y_coefficients(int i, int j)
+        {
+            return first_x_coefficients(j, i);
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar first_x(T&& data, int i, int j)
+        {
+            return first_x_coefficients(0,0) * data[i-1][j-1]
+                 + first_x_coefficients(0,1) * data[i-1][ j ]
+                 + first_x_coefficients(0,2) * data[i-1][j+1]
+                 + first_x_coefficients(1,0) * data[ i ][j-1]
+                 + first_x_coefficients(1,1) * data[ i ][ j ]
+                 + first_x_coefficients(1,2) * data[ i ][j+1]
+                 + first_x_coefficients(2,0) * data[i+1][j-1]
+                 + first_x_coefficients(2,1) * data[i+1][ j ]
+                 + first_x_coefficients(2,2) * data[i+1][j+1];
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar first_y(T&& data, int i, int j)
+        {
+            return first_y_coefficients(0,0) * data[i-1][j-1]
+                 + first_y_coefficients(0,1) * data[i-1][ j ]
+                 + first_y_coefficients(0,2) * data[i-1][j+1]
+                 + first_y_coefficients(1,0) * data[ i ][j-1]
+                 + first_y_coefficients(1,1) * data[ i ][ j ]
+                 + first_y_coefficients(1,2) * data[ i ][j+1]
+                 + first_y_coefficients(2,0) * data[i+1][j-1]
+                 + first_y_coefficients(2,1) * data[i+1][ j ]
+                 + first_y_coefficients(2,2) * data[i+1][j+1];
+        }
+    }
 }

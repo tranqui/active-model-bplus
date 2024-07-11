@@ -69,7 +69,7 @@ TEST_CASE("BulkCurrentTest")
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
+        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
     }
 }
@@ -95,7 +95,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
+        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }
@@ -113,7 +113,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = \lambda |\nabla\phi|^2$:
 
-    Gradient grad = gradient(field, stencil);
+    Gradient grad = isotropic_gradient(field, stencil);
     Field expected_mu = Field::Zero(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
@@ -128,7 +128,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
     {
         // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
+        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
         CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
     }
 }

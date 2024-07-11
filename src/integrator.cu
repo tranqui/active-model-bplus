@@ -87,13 +87,15 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        Scalar lap = laplacian(tile, i, j);
+        Scalar lap = isotropic_laplacian(tile, i, j);
+        Scalar grad_y = stencil.dyInv * isotropic_first_y(tile, i, j);
+        Scalar grad_x = stencil.dxInv * isotropic_first_x(tile, i, j);
         chemical_potential[index] = bulk_chemical_potential(tile[i][j])
                                     - model.kappa * lap
-                                    + model.lambda * grad_squ(tile, i, j);
+                                    + model.lambda * (square(grad_y) + square(grad_x));
 
-        circulating_current[0][index] = model.zeta * lap * first_y(tile, i, j);
-        circulating_current[1][index] = model.zeta * lap * first_x(tile, i, j);
+        circulating_current[0][index] = model.zeta * lap * grad_y;
+        circulating_current[1][index] = model.zeta * lap * grad_x;
     }
 
     __global__ void step(DeviceField field, DeviceField chemical_potential,
@@ -157,8 +159,8 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = first_y(J[0], i, j) + first_x(J[1], i, j);
-        field[index] -= stencil.dt * (divJ - laplacian(mu, i, j));
+        Scalar divJ = isotropic_first_y(J[0], i, j) + isotropic_first_x(J[1], i, j);
+        field[index] -= stencil.dt * (divJ - isotropic_laplacian(mu, i, j));
     }
 
     // Basic kernel to check for errors (e.g. if field become nan or inf).

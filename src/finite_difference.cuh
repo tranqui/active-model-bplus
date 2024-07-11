@@ -6,6 +6,12 @@
 
 namespace kernel
 {
+    template <typename T>
+    __forceinline__ __device__ Scalar square(T&& val)
+    {
+        return val * val;
+    }
+
     namespace details
     {
         template <std::size_t Order, StaggerGrid Stagger, typename T>
@@ -49,12 +55,6 @@ namespace kernel
         {
             return second_x<Order, Stagger>(std::forward<T>(tile), i, j)
                  + second_y<Order, Stagger>(std::forward<T>(tile), i, j);
-        }
-
-        template <typename T>
-        __forceinline__ __device__ Scalar square(T&& val)
-        {
-            return val * val;
         }
 
         template <std::size_t Order, StaggerGrid Stagger, typename T>
@@ -161,5 +161,30 @@ namespace kernel
     static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
     {
         return grad_squ<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar isotropic_first_x(T&& tile, int i, int j)
+    {
+        return finite_difference::isotropic::first_x(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar isotropic_first_y(T&& tile, int i, int j)
+    {
+        return finite_difference::isotropic::first_y(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar isotropic_laplacian(T&& tile, int i, int j)
+    {
+        return finite_difference::isotropic::laplacian(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar isotropic_grad_squ(T&& tile, int i, int j)
+    {
+        return square(isotropic_first_y(std::forward<T>(tile), i, j))
+             + square(isotropic_first_x(std::forward<T>(tile), i, j));
     }
 }
