@@ -59,21 +59,23 @@ struct ActiveModelBPlusParams
     Scalar kappa;
     Scalar lambda;
     Scalar zeta;
+    Scalar temperature;
 
     inline auto as_tuple()
     {
-        return std::tie(a, b, c, kappa, lambda, zeta);
+        return std::tie(a, b, c, kappa, lambda, zeta, temperature);
     }
 
     inline auto as_tuple() const
     {
-        return std::tie(a, b, c, kappa, lambda, zeta);
+        return std::tie(a, b, c, kappa, lambda, zeta, temperature);
     }
 
     inline friend bool operator==(const ActiveModelBPlusParams& a, const ActiveModelBPlusParams& b)
     {
         return a.a == b.a and a.b == b.b and a.c == b.c and
-            a.kappa == b.kappa and a.lambda == b.lambda and a.zeta == b.zeta;
+            a.kappa == b.kappa and a.lambda == b.lambda and a.zeta == b.zeta
+            and a.temperature == b.temperature;
     }
 };
 

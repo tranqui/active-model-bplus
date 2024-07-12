@@ -1,6 +1,6 @@
 #pragma once
 #include "parameters.h"
-
+#include <curand_kernel.h>
 
 namespace kernel
 {
@@ -65,6 +65,8 @@ protected:
     DeviceField chemical_potential;
     std::array<size_t, d> current_pitch;
     DeviceCurrent current;
+
+    curandState *random_state;
 
     int timestep = 0;
     int timestep_calculated_current = -1;
