@@ -86,7 +86,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field field = simulation.get_field();
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
-    Field expected_mu = -model.kappa * laplacian(field, stencil);
+    Field expected_mu = -model.kappa * isotropic_laplacian(field, stencil);
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
@@ -146,8 +146,8 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap = laplacian(field, stencil);
-    Gradient grad = gradient(field, stencil);
+    Field lap = isotropic_laplacian(field, stencil);
+    Gradient grad = isotropic_gradient(field, stencil);
 
     Current expected_partial_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
@@ -168,7 +168,7 @@ TEST_CASE("SurfaceZetaCurrentTest")
     simulation.run(1);
 
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = divergence(actual_partial_J, stencil);
+    Field expected_divJ = isotropic_divergence(actual_partial_J, stencil);
     CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
