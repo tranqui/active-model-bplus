@@ -88,8 +88,8 @@ namespace kernel
         // Surface terms involve derivatives of the field.
 
         Scalar lap = isotropic_laplacian(tile, i, j);
-        Scalar grad_y = stencil.dyInv * isotropic_first_y(tile, i, j);
-        Scalar grad_x = stencil.dxInv * isotropic_first_x(tile, i, j);
+        Scalar grad_y = isotropic_first_y(tile, i, j);
+        Scalar grad_x = isotropic_first_x(tile, i, j);
         chemical_potential[index] = bulk_chemical_potential(tile[i][j])
                                     - model.kappa * lap
                                     + model.lambda * (square(grad_y) + square(grad_x));
