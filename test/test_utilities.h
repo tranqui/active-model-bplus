@@ -345,7 +345,8 @@ namespace finite_difference
 
         auto lap = [&](int i, int j, auto tile)
         {
-            laplacian(i, j) = dxInv*dyInv * isotropic::laplacian(tile, N/2, N/2);
+            laplacian(i, j) = dyInv*dyInv * isotropic::second_y(tile, N/2, N/2)
+                            + dxInv*dxInv * isotropic::second_x(tile, N/2, N/2);
         };
         for_each_square_tile(field, lap);
 

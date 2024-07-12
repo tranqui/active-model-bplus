@@ -166,19 +166,20 @@ namespace kernel
     template <typename T>
     static __forceinline__ __device__ Scalar isotropic_first_x(T&& tile, int i, int j)
     {
-        return finite_difference::isotropic::first_x(std::forward<T>(tile), i, j);
+        return stencil.dxInv * finite_difference::isotropic::first_x(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
     static __forceinline__ __device__ Scalar isotropic_first_y(T&& tile, int i, int j)
     {
-        return finite_difference::isotropic::first_y(std::forward<T>(tile), i, j);
+        return stencil.dyInv * finite_difference::isotropic::first_y(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
     static __forceinline__ __device__ Scalar isotropic_laplacian(T&& tile, int i, int j)
     {
-        return finite_difference::isotropic::laplacian(std::forward<T>(tile), i, j);
+        return stencil.dxInv*stencil.dxInv * finite_difference::isotropic::second_x(std::forward<T>(tile), i, j)
+             + stencil.dyInv*stencil.dyInv * finite_difference::isotropic::second_y(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
