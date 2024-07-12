@@ -4,7 +4,7 @@
 
 /// Compile-time parameters affecting algorithm implementation.
 
-static constexpr int order = 8; // order of error in finite-difference approximations
+static constexpr int order = 2; // order of error in finite-difference approximations
 
 namespace kernel
 {
