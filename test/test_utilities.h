@@ -285,7 +285,7 @@ namespace finite_difference
             std::array<int, N> iy;
             for (int k = 0; k < N; ++k)
             {
-                iy[k] = i + k + N/2;
+                iy[k] = i + k - N/2;
                 if (iy[k] < 0) iy[k] += Ny;
                 if (iy[k] >= Ny) iy[k] -= Ny;
             }
