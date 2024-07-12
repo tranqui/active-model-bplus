@@ -39,7 +39,12 @@ public:
     Model get_model() const;
     HostField get_field() const;
     HostField get_chemical_potential();
-    HostCurrent get_nonconservative_current();
+    HostField get_passive_chemical_potential();
+    HostField get_active_chemical_potential();
+    HostCurrent get_passive_current();
+    HostCurrent get_active_current();
+    HostCurrent get_lambda_current();
+    HostCurrent get_circulating_current();
 
     inline int get_timestep() const
     {
@@ -61,10 +66,12 @@ protected:
 
     size_t field_pitch;
     DeviceField field;
-    size_t chemical_potential_pitch;
-    DeviceField chemical_potential;
-    std::array<size_t, d> current_pitch;
-    DeviceCurrent current;
+    size_t passive_chemical_potential_pitch, active_chemical_potential_pitch;
+    DeviceField passive_chemical_potential, active_chemical_potential;
+
+    std::array<size_t, d> pass_current_pitch, lamb_current_pitch,
+                          circ_current_pitch, rand_current_pitch;
+    DeviceCurrent pass_current, lamb_current, circ_current, rand_current;
 
     curandState *random_state;
 

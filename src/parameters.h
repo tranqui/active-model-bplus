@@ -4,7 +4,7 @@
 
 /// Compile-time parameters affecting algorithm implementation.
 
-static constexpr int order = 2; // order of error in finite-difference approximations
+static constexpr int order = 8; // order of error in finite-difference approximations
 
 namespace kernel
 {
@@ -13,12 +13,8 @@ namespace kernel
     // a CUDA thread for each tile sharing this memory. Varying the tile size
     // will potentially improve performance on different hardware - I found
     // 16x16 was close to optimum on my machine for simulations on a 1024x1024 grid.
-    static constexpr int tile_rows = 16;
-    static constexpr int tile_cols = 16;
-    // We need ghost points for each tile so we can evaluate derivatives at tile borders.
-    static constexpr int num_ghost = 1 + order / 2; // <- minimum for fourth derivatives
-    // One less support point needed in integrator because it involves one fewer derivative.
-    static constexpr int num_ghost_integrator = num_ghost - 1;
+    static constexpr int tile_rows = 8;
+    static constexpr int tile_cols = 8;
 }
 
 
