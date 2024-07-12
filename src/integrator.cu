@@ -100,7 +100,7 @@ namespace kernel
         circulating_current[1][index] = model.zeta * lap * grad_x;
 
         curandState *rnd = &random_state[index];
-        const Scalar mag = sqrt(2 * model.temperature * stencil.dxInv * stencil.dyInv / stencil.dt);
+        Scalar mag = model.noise_strength * stencil.noise_strength;
         circulating_current[0][index] += mag * curand_normal(rnd);
         circulating_current[1][index] += mag * curand_normal(rnd);
     }
@@ -297,7 +297,8 @@ void Integrator::set_device_parameters()
     cudaMemcpyToSymbol(kernel::stencil, &device_stencil, sizeof(DeviceStencilParams));
     cudaMemcpyToSymbol(kernel::nrows, &nrows, sizeof(int));
     cudaMemcpyToSymbol(kernel::ncols, &ncols, sizeof(int));
-    cudaMemcpyToSymbol(kernel::model, &model, sizeof(Model));
+    DeviceModelParams device_model(model);
+    cudaMemcpyToSymbol(kernel::model, &device_model, sizeof(DeviceModelParams));
 }
 
 void Integrator::calculate_current()

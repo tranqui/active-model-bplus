@@ -46,11 +46,12 @@ struct HostStencilParams
 
 struct DeviceStencilParams
 {
-    Scalar dt, dxInv, dyInv;
+    Scalar dt, dxInv, dyInv, noise_strength;
 
     DeviceStencilParams() noexcept = default;
     inline DeviceStencilParams(const HostStencilParams& host)
-      : dt(host.dt), dxInv(1/host.dx), dyInv(1/host.dy) { }
+      : dt(host.dt), dxInv(1/host.dx), dyInv(1/host.dy),
+        noise_strength(std::sqrt(1./(host.dt*host.dx*host.dy))) { }
 };
 
 struct ActiveModelBPlusParams
@@ -78,6 +79,17 @@ struct ActiveModelBPlusParams
             and a.temperature == b.temperature;
     }
 };
+
+struct DeviceModelParams : ActiveModelBPlusParams
+{
+    Scalar noise_strength;
+
+    DeviceModelParams() noexcept = default;
+    inline DeviceModelParams(const ActiveModelBPlusParams& host)
+      : ActiveModelBPlusParams(host),
+        noise_strength(std::sqrt(2*host.temperature)) { }
+};
+
 
 using Stencil = HostStencilParams;
 using Model = ActiveModelBPlusParams;
