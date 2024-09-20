@@ -72,9 +72,10 @@ from activemodelbplus.integrator import Model, Stencil, Integrator
 ```
 The classes `Model` and `Stencil` are data structures giving parameters for the simulation. `Model` contains those parameters in the Active Model B+ equation above, whereas `Stencil` contains properties of the discretisation onto the grid (and in time via the timestep). We assume a uniform square grid in 2d.
 
-In our example we'll pick equilibrium parameters to recreate spinodal decomposition in an equilibrium system: 
+In our example we'll pick equilibrium parameters to recreate spinodal decomposition in a mean-field
+($T = 0$) equilibrium system: 
 ```python
-model = Model(a=-0.25, b=0, c=0.25, kappa=1, lamb=0, zeta=0)
+model = Model(a=-0.25, b=0, c=0.25, kappa=1, lamb=0, zeta=0, T=0)
 ```
 The choice of $a=-c$ and $b=0$ sets the binodal to be at $\phi = \pm 
 
@@ -117,6 +118,6 @@ Active Model B+. It is straightforward to turn these on by passing non-zero valu
 and/or `zeta` when we construct the `Model` object. Simulating with $\lambda = -1$ and $\zeta = -4$
 produces the following output:
 
-![Spinodal decomposition](examples/stable_droplets.png)
+![Stable droplets formed by reverse Ostwald ripening](examples/stable_droplets.png)
 
 The full code for this example can be found in [examples/simulateReverseOstwald.py](examples/simulateReverseOstwald.py).
