@@ -26,7 +26,9 @@ And the model was introduced by the same authors in their earlier paper:
 
 * [C. Nardini et al., Phys. Rev. X 7, 021007 (2017)](https://doi.org/10.1103/PhysRevX.7.021007).
 
-These authors have uploaded their numerical implementation as a [github repository](https://github.com/elsentjhung/active-model-B-plus) which is a another helpful resource.
+These authors have uploaded their numerical implementation as a [github repository](https://github.com/elsentjhung/active-model-B-plus) which is a another helpful resource. Our implementation uses their
+numerical scheme, and our test code contains a [repackaging of their code](test/tjhung_ambplus.h) to
+verify binary compatability between implementations.
 
 To understand how Active Model B+ emerges from a minimal system, see [this preprint](https://arxiv.org/abs/2406.02409).
 
