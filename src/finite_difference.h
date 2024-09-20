@@ -310,4 +310,94 @@ namespace finite_difference
     {
         return second_y<Order, Central>(std::forward<T>(data), i, j);
     }
+
+    namespace tjhung
+    {
+        // Operators on a 3x3 stencil at quadratic order.
+        // Note these are not identical to standard isotropic stencil, see e.g.:
+        // https://en.wikipedia.org/wiki/Nine-point_stencil#Implementation
+        // Rather, these come from Tjhung et al's discretisation, cf:
+        // https://elsentjhung.github.io/posts/2020/12/discretization/
+        // and https://github.com/elsentjhung/active-model-B-plus
+        CUDA_HOST_DEVICE constexpr inline Scalar first_x_coefficients(int i, int j)
+        {
+            Scalar coefficients[3][3] = {
+                {-1./10, 0, 1./10},
+                {-3./10, 0, 3./10},
+                {-1./10, 0, 1./10}
+            };
+            return coefficients[i][j];
+        }
+
+        CUDA_HOST_DEVICE constexpr inline Scalar second_x_coefficients(int i, int j)
+        {
+            // Cf. standard isotropic coefficients.
+            // Scalar coefficients[3][3] = {
+            //     {5./12, -5./6, 5./12},
+            //     {1./6,  -1./3, 1./6},
+            //     {5./12, -5./6, 5./12}
+            // };
+            // Tjhung et al (2018) use these, cf.:
+            // https://elsentjhung.github.io/posts/2020/12/discretization/
+            // https://github.com/elsentjhung/active-model-B-plus
+            Scalar coefficients[3][3] = {
+                {-0.25,  0.5, -0.25},
+                { 1.50, -3.0,  1.50},
+                {-0.25,  0.5, -0.25}
+            };
+            return coefficients[i][j];
+        }
+
+        /// Coefficients in y direction are simply the transpose of the x coefficients.
+
+        CUDA_HOST_DEVICE constexpr inline Scalar first_y_coefficients(int i, int j)
+        {
+            return first_x_coefficients(j, i);
+        }
+
+        CUDA_HOST_DEVICE constexpr inline Scalar second_y_coefficients(int i, int j)
+        {
+            return second_x_coefficients(j, i);
+        }
+
+        /// Apply square stencil to tile at (i, j)
+        template <typename T, typename Coefficients>
+        CUDA_HOST_DEVICE inline Scalar apply_square_grid(T&& data, int i, int j,
+                                                         Coefficients coefficients)
+        {
+            return coefficients(0,0) * data[i-1][j-1]
+                 + coefficients(0,1) * data[i-1][ j ]
+                 + coefficients(0,2) * data[i-1][j+1]
+                 + coefficients(1,0) * data[ i ][j-1]
+                 + coefficients(1,1) * data[ i ][ j ]
+                 + coefficients(1,2) * data[ i ][j+1]
+                 + coefficients(2,0) * data[i+1][j-1]
+                 + coefficients(2,1) * data[i+1][ j ]
+                 + coefficients(2,2) * data[i+1][j+1];
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar first_x(T&& data, int i, int j)
+        {
+            return apply_square_grid(std::forward<T>(data), i, j, first_x_coefficients);
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar first_y(T&& data, int i, int j)
+        {
+            return apply_square_grid(std::forward<T>(data), i, j, first_y_coefficients);
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar second_x(T&& data, int i, int j)
+        {
+            return apply_square_grid(std::forward<T>(data), i, j, second_x_coefficients);
+        }
+
+        template <typename T>
+        CUDA_HOST_DEVICE inline Scalar second_y(T&& data, int i, int j)
+        {
+            return apply_square_grid(std::forward<T>(data), i, j, second_y_coefficients);
+        }
+    }
 }

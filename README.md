@@ -64,6 +64,8 @@ The main output of this notebook is the phase diagram, showing a region where dr
 
 ## Numerical simulations
 
+### Passive simulations
+
 After building/installing the kernel code we need to import some relevant objects inside a python environment
 ```python
 from activemodelbplus.integrator import Model, Stencil, Integrator
@@ -104,6 +106,17 @@ The python function `sim.run_for_time` adds some syntactic sugar to the underlyi
 
 It should produce something like the following output:
 
-![Spinodal decomposition](spinodal_decomposition.png)
+![Spinodal decomposition](examples/spinodal_decomposition.png)
 
-The full code for the example can be found in [examples/simulateOstwald.py](examples/simulateOstwald.py).
+The full code for the example can be found in [examples/simulateSpinodal.py](examples/simulateSpinodal.py).
+
+### Active simulations
+
+The above example simulates Model B, i.e. without any non-integrable terms which are novel to
+Active Model B+. It is straightforward to turn these on by passing non-zero values for `lambda`
+and/or `zeta` when we construct the `Model` object. Simulating with $\lambda = -1$ and $\zeta = -4$
+produces the following output:
+
+![Spinodal decomposition](examples/stable_droplets.png)
+
+The full code for this example can be found in [examples/simulateReverseOstwald.py](examples/simulateReverseOstwald.py).

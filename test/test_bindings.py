@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from activemodelbplus.integrator import Model, Stencil, Integrator
 
 def test_model():
-    params = (1, 2, 3, 4, 5, 6)
+    params = (1, 2, 3, 4, 5, 6, 7)
     model = Model(*params)
     copy = Model(model)
 
@@ -19,6 +19,7 @@ def test_model():
     assert model.kappa == params[3]
     assert model.lamb == params[4]
     assert model.zeta == params[5]
+    assert model.T == params[6]
     assert copy is not model
     assert copy == model
     assert copy.as_tuple() == model.as_tuple()
@@ -49,7 +50,7 @@ def test_stencil():
 
 def test_integrator():
     stencil = Stencil(1e-2, 1, 1)
-    model = Model(0.25, 0.5, 0.25, 1, 1, 1)
+    model = Model(0.25, 0.5, 0.25, 1, 1, 1, 0)
 
     Nx, Ny = 256, 128
     initial = np.random.random((Ny, Nx))

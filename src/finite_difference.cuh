@@ -6,6 +6,12 @@
 
 namespace kernel
 {
+    template <typename T>
+    __forceinline__ __device__ Scalar square(T&& val)
+    {
+        return val * val;
+    }
+
     namespace details
     {
         template <std::size_t Order, StaggerGrid Stagger, typename T>
@@ -49,12 +55,6 @@ namespace kernel
         {
             return second_x<Order, Stagger>(std::forward<T>(tile), i, j)
                  + second_y<Order, Stagger>(std::forward<T>(tile), i, j);
-        }
-
-        template <typename T>
-        __forceinline__ __device__ Scalar square(T&& val)
-        {
-            return val * val;
         }
 
         template <std::size_t Order, StaggerGrid Stagger, typename T>
@@ -161,5 +161,31 @@ namespace kernel
     static __forceinline__ __device__ Scalar grad_squ(T&& tile, int i, int j)
     {
         return grad_squ<Central>(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar tjhung_first_x(T&& tile, int i, int j)
+    {
+        return stencil.dxInv * finite_difference::tjhung::first_x(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar tjhung_first_y(T&& tile, int i, int j)
+    {
+        return stencil.dyInv * finite_difference::tjhung::first_y(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar tjhung_laplacian(T&& tile, int i, int j)
+    {
+        return stencil.dxInv*stencil.dxInv * finite_difference::tjhung::second_x(std::forward<T>(tile), i, j)
+             + stencil.dyInv*stencil.dyInv * finite_difference::tjhung::second_y(std::forward<T>(tile), i, j);
+    }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar tjhung_grad_squ(T&& tile, int i, int j)
+    {
+        return square(tjhung_first_y(std::forward<T>(tile), i, j))
+             + square(tjhung_first_x(std::forward<T>(tile), i, j));
     }
 }

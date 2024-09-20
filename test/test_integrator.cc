@@ -50,7 +50,7 @@ TEST_CASE("BulkCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{1, 2, 3, 0, 0, 0};
+    Model model{1, 2, 3, 0, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
@@ -64,14 +64,19 @@ TEST_CASE("BulkCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current active_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(active_J[0], 0));
+    CHECK(is_equal<tight_tol>(active_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
-    }
+    Field expected_divJ = divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceKappaCurrentTest")
@@ -80,24 +85,29 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{0, 0, 0, 1, 0, 0};
+    Model model{0, 0, 0, 1, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
-    Field expected_mu = -model.kappa * laplacian(field, stencil);
+    Field expected_mu = -model.kappa * tjhung_laplacian(field, stencil);
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current active_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(active_J[0], 0));
+    CHECK(is_equal<tight_tol>(active_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
+    Field expected_divJ = divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceLambdaCurrentTest")
@@ -106,14 +116,14 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 0.75};
-    Model model{0, 0, 0, 0, 1, 0};
+    Model model{0, 0, 0, 0, 1, 0, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = \lambda |\nabla\phi|^2$:
 
-    Gradient grad = gradient(field, stencil);
+    Gradient grad = tjhung_gradient(field, stencil);
     Field expected_mu = Field::Zero(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
@@ -123,14 +133,19 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = tjhung_gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current passive_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(passive_J[0], 0));
+    CHECK(is_equal<tight_tol>(passive_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
+    Field expected_divJ = tjhung_divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceZetaCurrentTest")
@@ -139,36 +154,43 @@ TEST_CASE("SurfaceZetaCurrentTest")
     Field initial = Field::Random(Ny, Nx);
     Scalar dt{1e-2};
     Stencil stencil{dt, 1, 1.25};
-    Model model{0, 0, 0, 0, 0, 1};
+    Model model{0, 0, 0, 0, 0, 1, 0};
 
     Integrator simulation(initial, stencil, model);
     Field field = simulation.get_field();
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap = laplacian(field, stencil);
-    Gradient grad = gradient(field, stencil);
+    Field lap = tjhung_laplacian(field, stencil);
+    Gradient grad = tjhung_gradient(field, stencil);
 
-    Current expected_partial_J{Field(Ny, Nx), Field(Ny, Nx)};
+    Current expected_circ_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
         {
-            expected_partial_J[0](i,j) = model.zeta * lap(i,j) * grad[0](i,j);
-            expected_partial_J[1](i,j) = model.zeta * lap(i,j) * grad[1](i,j);
+            expected_circ_J[0](i,j) = model.zeta * lap(i,j) * grad[0](i,j);
+            expected_circ_J[1](i,j) = model.zeta * lap(i,j) * grad[1](i,j);
         }
 
-    Current actual_partial_J = simulation.get_nonconservative_current();
-    CHECK(is_equal<tight_tol>(expected_partial_J[0], actual_partial_J[0]));
-    CHECK(is_equal<tight_tol>(expected_partial_J[1], actual_partial_J[1]));
+    Current actual_circ_J = simulation.get_circulating_current();
+    CHECK(is_equal<tight_tol>(expected_circ_J[0], actual_circ_J[0]));
+    CHECK(is_equal<tight_tol>(expected_circ_J[1], actual_circ_J[1]));
 
     Field actual_mu = simulation.get_chemical_potential();
-    Field expected_mu = Field::Zero(Ny, Nx);
-    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
+    CHECK(is_equal<tight_tol>(actual_mu, 0));
+
+    Current lambda_J = simulation.get_lambda_current();
+    CHECK(is_equal<tight_tol>(lambda_J[0], 0));
+    CHECK(is_equal<tight_tol>(lambda_J[1], 0));
+
+    Current passive_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(passive_J[0], 0));
+    CHECK(is_equal<tight_tol>(passive_J[1], 0));
 
     simulation.run(1);
 
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = divergence(actual_partial_J, stencil);
+    Field expected_divJ = tjhung_divergence(actual_circ_J, stencil);
     CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
@@ -213,7 +235,7 @@ TEST_CASE("PhaseSeparationTest")
 
     Stencil stencil{1e-2, 1, 1.25};
     // Parameters for phase separation with binodal at \phi = \pm 1.
-    Model model{-0.25, 0, 0.25, 1, 0, 0};
+    Model model{-0.25, 0, 0.25, 1, 0, 0, 0};
 
     Integrator simulation(initial, stencil, model);
 

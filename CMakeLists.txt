@@ -6,8 +6,10 @@ find_package(Python COMPONENTS Interpreter Development)
 find_package(pybind11 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Catch2 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 include_directories(${CUDA_INCLUDE_DIRS})
+include_directories(${CUDAToolkit_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
 # Set compiler flags
@@ -94,16 +96,24 @@ target_include_directories(test_integrator PRIVATE
                            ${CMAKE_CURRENT_SOURCE_DIR}/test
                            ${Catch2_INCLUDE_DIRS})
 
+add_executable(test_tjhung test/test_tjhung.cc)
+add_dependencies(test_tjhung integrator-kernel test_integrator)
+target_link_libraries(test_tjhung integrator-kernel)
+target_include_directories(test_tjhung PRIVATE
+                          ${CMAKE_CURRENT_SOURCE_DIR}/src
+                          ${CMAKE_CURRENT_SOURCE_DIR}/test
+                          ${Catch2_INCLUDE_DIRS})
+
 # Register unit tests
 enable_testing()
 add_test(NAME test_finite_differences COMMAND test_finite_differences)
 add_test(NAME test_integrator COMMAND test_integrator)
+add_test(NAME test_tjhung COMMAND test_tjhung)
 
-# Run unit tests at end of build process
-add_custom_command(
-    TARGET test_integrator POST_BUILD
+# Run unit tests at end of their build processes
+add_custom_target(run_all_tests ALL
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS test_integrator test_finite_differences
+    DEPENDS test_finite_differences test_integrator test_tjhung
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running unit tests"
 )
@@ -114,7 +124,7 @@ add_test(NAME test_bindings
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
 )
 add_custom_command(
-    TARGET test_integrator POST_BUILD
+    TARGET run_all_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_BINARY_DIR}/activemodelbplus ${Python_EXECUTABLE} -m pytest
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
     COMMENT "Testing python bindings"
