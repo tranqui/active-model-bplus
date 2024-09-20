@@ -110,11 +110,10 @@ add_test(NAME test_finite_differences COMMAND test_finite_differences)
 add_test(NAME test_integrator COMMAND test_integrator)
 add_test(NAME test_tjhung COMMAND test_tjhung)
 
-# Run unit tests at end of build process
-add_custom_command(
-    TARGET test_tjhung POST_BUILD
+# Run unit tests at end of their build processes
+add_custom_target(run_all_tests ALL
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS test_tjhung test_integrator test_finite_differences
+    DEPENDS test_finite_differences test_integrator test_tjhung
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running unit tests"
 )
@@ -125,7 +124,7 @@ add_test(NAME test_bindings
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
 )
 add_custom_command(
-    TARGET test_tjhung POST_BUILD
+    TARGET run_all_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_BINARY_DIR}/activemodelbplus ${Python_EXECUTABLE} -m pytest
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test
     COMMENT "Testing python bindings"
