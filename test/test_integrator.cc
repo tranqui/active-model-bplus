@@ -64,14 +64,19 @@ TEST_CASE("BulkCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current active_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(active_J[0], 0));
+    CHECK(is_equal<tight_tol>(active_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
-    }
+    Field expected_divJ = divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceKappaCurrentTest")
@@ -90,14 +95,19 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current active_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(active_J[0], 0));
+    CHECK(is_equal<tight_tol>(active_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
+    Field expected_divJ = divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceLambdaCurrentTest")
@@ -123,14 +133,19 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
+    Current expected_J = isotropic_gradient(-actual_mu, stencil);
+    Current actual_J = simulation.get_active_current();
+    CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
+    CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
+
+    Current passive_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(passive_J[0], 0));
+    CHECK(is_equal<tight_tol>(passive_J[1], 0));
+
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-
-    {
-        // Expect: $\nabla \cdot \vec{J} = -\nabla^2 \mu$.
-        Field expected_divJ = -isotropic_laplacian(actual_mu, stencil);
-        CHECK(is_equal<tight_tol>(actual_divJ, expected_divJ));
-    }
+    Field expected_divJ = isotropic_divergence(actual_J, stencil);
+    CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
 TEST_CASE("SurfaceZetaCurrentTest")
@@ -149,26 +164,33 @@ TEST_CASE("SurfaceZetaCurrentTest")
     Field lap = isotropic_laplacian(field, stencil);
     Gradient grad = isotropic_gradient(field, stencil);
 
-    Current expected_partial_J{Field(Ny, Nx), Field(Ny, Nx)};
+    Current expected_circ_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
         {
-            expected_partial_J[0](i,j) = model.zeta * lap(i,j) * grad[0](i,j);
-            expected_partial_J[1](i,j) = model.zeta * lap(i,j) * grad[1](i,j);
+            expected_circ_J[0](i,j) = model.zeta * lap(i,j) * grad[0](i,j);
+            expected_circ_J[1](i,j) = model.zeta * lap(i,j) * grad[1](i,j);
         }
 
-    Current actual_partial_J = simulation.get_nonconservative_current();
-    CHECK(is_equal<tight_tol>(expected_partial_J[0], actual_partial_J[0]));
-    CHECK(is_equal<tight_tol>(expected_partial_J[1], actual_partial_J[1]));
+    Current actual_circ_J = simulation.get_circulating_current();
+    CHECK(is_equal<tight_tol>(expected_circ_J[0], actual_circ_J[0]));
+    CHECK(is_equal<tight_tol>(expected_circ_J[1], actual_circ_J[1]));
 
     Field actual_mu = simulation.get_chemical_potential();
-    Field expected_mu = Field::Zero(Ny, Nx);
-    CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
+    CHECK(is_equal<tight_tol>(actual_mu, 0));
+
+    Current lambda_J = simulation.get_lambda_current();
+    CHECK(is_equal<tight_tol>(lambda_J[0], 0));
+    CHECK(is_equal<tight_tol>(lambda_J[1], 0));
+
+    Current passive_J = simulation.get_passive_current();
+    CHECK(is_equal<tight_tol>(passive_J[0], 0));
+    CHECK(is_equal<tight_tol>(passive_J[1], 0));
 
     simulation.run(1);
 
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = isotropic_divergence(actual_partial_J, stencil);
+    Field expected_divJ = isotropic_divergence(actual_circ_J, stencil);
     CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
