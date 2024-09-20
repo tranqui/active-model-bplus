@@ -311,14 +311,13 @@ namespace finite_difference
         return second_y<Order, Central>(std::forward<T>(data), i, j);
     }
 
-    namespace isotropic
+    namespace tjhung
     {
-        // Isotropic operators on a 3x3 stencil. The order of these is fixed
-        // for the time being, until I can figure out how to generalise.
-        // These stencils minimise errors due to the square grid. See e.g.:
+        // Operators on a 3x3 stencil at quadratic order.
+        // Note these are not identical to standard isotropic stencil, see e.g.:
         // https://en.wikipedia.org/wiki/Nine-point_stencil#Implementation
-
-        // Cf. https://elsentjhung.github.io/posts/2020/12/discretization/
+        // Rather, these come from Tjhung et al's discretisation, cf:
+        // https://elsentjhung.github.io/posts/2020/12/discretization/
         // and https://github.com/elsentjhung/active-model-B-plus
         CUDA_HOST_DEVICE constexpr inline Scalar first_x_coefficients(int i, int j)
         {
@@ -332,7 +331,7 @@ namespace finite_difference
 
         CUDA_HOST_DEVICE constexpr inline Scalar second_x_coefficients(int i, int j)
         {
-            // Standard isotropic coefficients.
+            // Cf. standard isotropic coefficients.
             // Scalar coefficients[3][3] = {
             //     {5./12, -5./6, 5./12},
             //     {1./6,  -1./3, 1./6},

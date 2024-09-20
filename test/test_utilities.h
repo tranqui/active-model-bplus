@@ -314,7 +314,7 @@ namespace finite_difference
 
     // Find gradient of field by central finite differences.
     // template <std::size_t N>
-    inline Gradient isotropic_gradient(Field field, Stencil stencil)
+    inline Gradient tjhung_gradient(Field field, Stencil stencil)
     {
         static constexpr int N = 3; // currently only implemented on N=3
         static_assert(N % 2 == 1); // must be odd for central stencil
@@ -324,8 +324,8 @@ namespace finite_difference
 
         auto grad = [&](int i, int j, auto tile)
         {
-            gradient[0](i, j) = isotropic::first_y(tile, N/2, N/2) / stencil.dy;
-            gradient[1](i, j) = isotropic::first_x(tile, N/2, N/2) / stencil.dx;
+            gradient[0](i, j) = tjhung::first_y(tile, N/2, N/2) / stencil.dy;
+            gradient[1](i, j) = tjhung::first_x(tile, N/2, N/2) / stencil.dx;
         };
         for_each_square_tile(field, grad);
 
@@ -334,7 +334,7 @@ namespace finite_difference
 
     // Find laplacian of field by central finite differences.
     // template <std::size_t N>
-    inline Field isotropic_laplacian(const FieldRef& field, Stencil stencil)
+    inline Field tjhung_laplacian(const FieldRef& field, Stencil stencil)
     {
         static constexpr int N = 3; // currently only implemented on N=3
         static_assert(N % 2 == 1); // must be odd for central stencil
@@ -345,8 +345,8 @@ namespace finite_difference
 
         auto lap = [&](int i, int j, auto tile)
         {
-            laplacian(i, j) = dyInv*dyInv * isotropic::second_y(tile, N/2, N/2)
-                            + dxInv*dxInv * isotropic::second_x(tile, N/2, N/2);
+            laplacian(i, j) = dyInv*dyInv * tjhung::second_y(tile, N/2, N/2)
+                            + dxInv*dxInv * tjhung::second_x(tile, N/2, N/2);
         };
         for_each_square_tile(field, lap);
 
@@ -355,7 +355,7 @@ namespace finite_difference
 
     // Find divergence of vector field by central finite differences.
     // template <std::size_t N>
-    inline Field isotropic_divergence(const Gradient& grad, Stencil stencil)
+    inline Field tjhung_divergence(const Gradient& grad, Stencil stencil)
     {
         static constexpr int N = 3; // currently only implemented on N=3
         static_assert(N % 2 == 1); // must be odd for central stencil
@@ -366,11 +366,11 @@ namespace finite_difference
 
         auto div_y = [&](int i, int j, auto tile)
         {
-            divergence(i, j) += dyInv * isotropic::first_y(tile, N/2, N/2);
+            divergence(i, j) += dyInv * tjhung::first_y(tile, N/2, N/2);
         };
         auto div_x = [&](int i, int j, auto tile)
         {
-            divergence(i, j) += dxInv * isotropic::first_x(tile, N/2, N/2);
+            divergence(i, j) += dxInv * tjhung::first_x(tile, N/2, N/2);
         };
 
         for_each_square_tile(grad[0], div_y);

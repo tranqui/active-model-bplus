@@ -92,9 +92,9 @@ namespace kernel
 
         // Surface terms involve derivatives of the field.
 
-        Scalar lap = isotropic_laplacian(tile, i, j);
-        Scalar grad_y = isotropic_first_y(tile, i, j);
-        Scalar grad_x = isotropic_first_x(tile, i, j);
+        Scalar lap = tjhung_laplacian(tile, i, j);
+        Scalar grad_y = tjhung_first_y(tile, i, j);
+        Scalar grad_x = tjhung_first_x(tile, i, j);
         passive_chemical_potential[index] =
             bulk_chemical_potential(tile[i][j]) - model.kappa * lap;
         active_chemical_potential[index] = model.lambda * (square(grad_y) + square(grad_x));
@@ -169,8 +169,8 @@ namespace kernel
         passive_current[0][index] = -first_y(mup, i, j);
         passive_current[1][index] = -first_x(mup, i, j);
 
-        active_current[0][index] = -isotropic_first_y(mua, i, j);
-        active_current[1][index] = -isotropic_first_x(mua, i, j);
+        active_current[0][index] = -tjhung_first_y(mua, i, j);
+        active_current[1][index] = -tjhung_first_x(mua, i, j);
     }
 
     __global__ void step(DeviceField field,
@@ -253,7 +253,7 @@ namespace kernel
         __syncthreads();
 
         // Integration rule from continuity equation $\partial_t \phi = -\nabla \cdot \vec{J}$:
-        Scalar divJ = isotropic_first_y(J2[0], i, j) + isotropic_first_x(J2[1], i, j)
+        Scalar divJ = tjhung_first_y(J2[0], i, j) + tjhung_first_x(J2[1], i, j)
                     + first_y(J1[0], i, j) + first_x(J1[1], i, j);
         field[index] -= stencil.dt * divJ;
     }

@@ -164,28 +164,28 @@ namespace kernel
     }
 
     template <typename T>
-    static __forceinline__ __device__ Scalar isotropic_first_x(T&& tile, int i, int j)
+    static __forceinline__ __device__ Scalar tjhung_first_x(T&& tile, int i, int j)
     {
-        return stencil.dxInv * finite_difference::isotropic::first_x(std::forward<T>(tile), i, j);
+        return stencil.dxInv * finite_difference::tjhung::first_x(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
-    static __forceinline__ __device__ Scalar isotropic_first_y(T&& tile, int i, int j)
+    static __forceinline__ __device__ Scalar tjhung_first_y(T&& tile, int i, int j)
     {
-        return stencil.dyInv * finite_difference::isotropic::first_y(std::forward<T>(tile), i, j);
+        return stencil.dyInv * finite_difference::tjhung::first_y(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
-    static __forceinline__ __device__ Scalar isotropic_laplacian(T&& tile, int i, int j)
+    static __forceinline__ __device__ Scalar tjhung_laplacian(T&& tile, int i, int j)
     {
-        return stencil.dxInv*stencil.dxInv * finite_difference::isotropic::second_x(std::forward<T>(tile), i, j)
-             + stencil.dyInv*stencil.dyInv * finite_difference::isotropic::second_y(std::forward<T>(tile), i, j);
+        return stencil.dxInv*stencil.dxInv * finite_difference::tjhung::second_x(std::forward<T>(tile), i, j)
+             + stencil.dyInv*stencil.dyInv * finite_difference::tjhung::second_y(std::forward<T>(tile), i, j);
     }
 
     template <typename T>
-    static __forceinline__ __device__ Scalar isotropic_grad_squ(T&& tile, int i, int j)
+    static __forceinline__ __device__ Scalar tjhung_grad_squ(T&& tile, int i, int j)
     {
-        return square(isotropic_first_y(std::forward<T>(tile), i, j))
-             + square(isotropic_first_x(std::forward<T>(tile), i, j));
+        return square(tjhung_first_y(std::forward<T>(tile), i, j))
+             + square(tjhung_first_x(std::forward<T>(tile), i, j));
     }
 }

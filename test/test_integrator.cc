@@ -91,7 +91,7 @@ TEST_CASE("SurfaceKappaCurrentTest")
     Field field = simulation.get_field();
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = - \kappa \nabla^2 \phi$:
-    Field expected_mu = -model.kappa * isotropic_laplacian(field, stencil);
+    Field expected_mu = -model.kappa * tjhung_laplacian(field, stencil);
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
@@ -123,7 +123,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
     // Current $\vec{J} = -\nabla \mu$ with $\mu = \lambda |\nabla\phi|^2$:
 
-    Gradient grad = isotropic_gradient(field, stencil);
+    Gradient grad = tjhung_gradient(field, stencil);
     Field expected_mu = Field::Zero(Ny, Nx);
     for (int i = 0; i < Ny; ++i)
         for (int j = 0; j < Nx; ++j)
@@ -133,7 +133,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
     Field actual_mu = simulation.get_chemical_potential();
     CHECK(is_equal<tight_tol>(expected_mu, actual_mu));
 
-    Current expected_J = isotropic_gradient(-actual_mu, stencil);
+    Current expected_J = tjhung_gradient(-actual_mu, stencil);
     Current actual_J = simulation.get_active_current();
     CHECK(is_equal<tight_tol>(expected_J[0], actual_J[0]));
     CHECK(is_equal<tight_tol>(expected_J[1], actual_J[1]));
@@ -144,7 +144,7 @@ TEST_CASE("SurfaceLambdaCurrentTest")
 
     simulation.run(1);
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = isotropic_divergence(actual_J, stencil);
+    Field expected_divJ = tjhung_divergence(actual_J, stencil);
     CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
@@ -161,8 +161,8 @@ TEST_CASE("SurfaceZetaCurrentTest")
 
     // Current $\vec{J} = (\nabla^2 \phi) \nabla \phi$:
 
-    Field lap = isotropic_laplacian(field, stencil);
-    Gradient grad = isotropic_gradient(field, stencil);
+    Field lap = tjhung_laplacian(field, stencil);
+    Gradient grad = tjhung_gradient(field, stencil);
 
     Current expected_circ_J{Field(Ny, Nx), Field(Ny, Nx)};
     for (int i = 0; i < Ny; ++i)
@@ -190,7 +190,7 @@ TEST_CASE("SurfaceZetaCurrentTest")
     simulation.run(1);
 
     Field actual_divJ = -(simulation.get_field() - field) / dt;
-    Field expected_divJ = isotropic_divergence(actual_circ_J, stencil);
+    Field expected_divJ = tjhung_divergence(actual_circ_J, stencil);
     CHECK(is_equal<tight_tol>(expected_divJ, actual_divJ));
 }
 
