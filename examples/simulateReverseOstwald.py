@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from activemodelbplus.integrator import Model, Stencil, Integrator
 
 # Parameters for bubbly phase from Tjhung et al (2018).
-stencil = Stencil(dt=1e-2, dx=1, dy=1)
+stencil = Stencil(dt=1e-3, dx=1, dy=1)
 model = Model(a=-0.25, b=0, c=0.25, kappa=1, lamb=-1, zeta=-4, T=0)
 phi0 = -0.4
 
