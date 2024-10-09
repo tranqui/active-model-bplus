@@ -499,8 +499,14 @@ void Integrator::run(int nsteps)
                          (nrows + block_dim.y - 1) / block_dim.y);
 
 
+    // Ensure forces/currents are pre-calculated at current timestep.
+    calculate_current();
+
     for (int i = 0; i < nsteps; ++i)
     {
+        kernel::step<<<grid_size, block_dim>>>(
+            field, pass_current, lamb_current, circ_current, rand_current);
+        // Calculate quantities for next step or reading if we stop here.
         kernel::calculate_forces<<<grid_size, block_dim>>>(
             field, passive_chemical_potential, active_chemical_potential,
             circ_current, rand_current, random_state);
@@ -510,6 +516,8 @@ void Integrator::run(int nsteps)
         kernel::step<<<grid_size, block_dim>>>(
             field, pass_current, lamb_current, circ_current, rand_current);
     }
+
+    timestep += nsteps;
 
     cudaDeviceSynchronize();
     kernel::throw_errors();
