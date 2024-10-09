@@ -405,6 +405,18 @@ HostField Integrator::get_active_chemical_potential()
     return out;
 }
 
+HostCurrent Integrator::get_current()
+{
+    HostCurrent passive = get_passive_current();
+    HostCurrent active = get_active_current();
+    HostCurrent random = get_random_current();
+    calculate_current();
+    HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
+    for (int c = 0; c < d; ++c)
+        out[c] = passive[c] + active[c] + random[c];
+    return out;
+}
+
 HostCurrent Integrator::get_passive_current()
 {
     calculate_current();
@@ -437,6 +449,15 @@ HostCurrent Integrator::get_circulating_current()
     HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
     for (int c = 0; c < d; ++c)
         cudaMemcpy(out[c].data(), circ_current[c], mem_size, cudaMemcpyDeviceToHost);
+    return out;
+}
+
+HostCurrent Integrator::get_random_current()
+{
+    calculate_current();
+    HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
+    for (int c = 0; c < d; ++c)
+        cudaMemcpy(out[c].data(), rand_current[c], mem_size, cudaMemcpyDeviceToHost);
     return out;
 }
 

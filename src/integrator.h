@@ -41,10 +41,12 @@ public:
     HostField get_chemical_potential();
     HostField get_passive_chemical_potential();
     HostField get_active_chemical_potential();
+    HostCurrent get_current();
     HostCurrent get_passive_current();
     HostCurrent get_active_current();
     HostCurrent get_lambda_current();
     HostCurrent get_circulating_current();
+    HostCurrent get_random_current();
 
     inline int get_timestep() const
     {
