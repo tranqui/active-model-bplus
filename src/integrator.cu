@@ -493,6 +493,9 @@ void Integrator::calculate_current()
 
 void Integrator::run(int nsteps)
 {
+    // Ensure forces/currents are pre-calculated at current timestep.
+    calculate_current();
+
     set_device_parameters();
     const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
     const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
@@ -506,7 +509,7 @@ void Integrator::run(int nsteps)
     {
         kernel::step<<<grid_size, block_dim>>>(
             field, pass_current, lamb_current, circ_current, rand_current);
-        // Calculate quantities for next step or reading if we stop here.
+        // Calculate for next step, or to be read by user if stopping.
         kernel::calculate_forces<<<grid_size, block_dim>>>(
             field, passive_chemical_potential, active_chemical_potential,
             circ_current, rand_current, random_state);
