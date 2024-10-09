@@ -268,7 +268,7 @@ namespace kernel
     }
 
     // Seed random number generator on the device.
-    __global__ void init_random_state(curandState *state, unsigned long seed)
+    __global__ void init_random_state(curandState *state, unsigned long long seed)
     {
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -318,6 +318,7 @@ Integrator::Integrator(const HostFieldRef& initial_field,
     std::uniform_int_distribution<unsigned long long> dist;
     auto seed = dist(generator);
     // Seed the device.
+    set_device_parameters();
     const dim3 block_dim(kernel::tile_cols, kernel::tile_rows);
     const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
                          (nrows + block_dim.y - 1) / block_dim.y);
