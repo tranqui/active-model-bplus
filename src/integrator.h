@@ -42,6 +42,7 @@ public:
     HostField get_passive_chemical_potential();
     HostField get_active_chemical_potential();
     HostCurrent get_current();
+    HostCurrent get_deterministic_current();
     HostCurrent get_passive_current();
     HostCurrent get_active_current();
     HostCurrent get_lambda_current();

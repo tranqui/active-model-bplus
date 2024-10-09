@@ -407,14 +407,19 @@ HostField Integrator::get_active_chemical_potential()
 
 HostCurrent Integrator::get_current()
 {
-    HostCurrent passive = get_passive_current();
-    HostCurrent active = get_active_current();
     HostCurrent random = get_random_current();
-    calculate_current();
-    HostCurrent out = repeat_array<HostField, d>(nrows, ncols);
-    for (int c = 0; c < d; ++c)
-        out[c] = passive[c] + active[c] + random[c];
-    return out;
+    HostCurrent total = get_deterministic_current();
+    for (int c = 0; c < d; ++c) total[c] += random[c];
+    return total;
+}
+
+
+HostCurrent Integrator::get_deterministic_current()
+{
+    HostCurrent passive = get_passive_current();
+    HostCurrent total = get_active_current();
+    for (int c = 0; c < d; ++c) total[c] += passive[c];
+    return total;
 }
 
 HostCurrent Integrator::get_passive_current()
