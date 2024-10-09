@@ -501,10 +501,6 @@ void Integrator::run(int nsteps)
     const dim3 grid_size((ncols + block_dim.x - 1) / block_dim.x,
                          (nrows + block_dim.y - 1) / block_dim.y);
 
-
-    // Ensure forces/currents are pre-calculated at current timestep.
-    calculate_current();
-
     for (int i = 0; i < nsteps; ++i)
     {
         kernel::step<<<grid_size, block_dim>>>(
@@ -516,8 +512,6 @@ void Integrator::run(int nsteps)
         kernel::calculate_local_currents<<<grid_size, block_dim>>>(
             passive_chemical_potential, active_chemical_potential,
             pass_current, lamb_current);
-        kernel::step<<<grid_size, block_dim>>>(
-            field, pass_current, lamb_current, circ_current, rand_current);
     }
 
     timestep += nsteps;
@@ -538,6 +532,4 @@ void Integrator::run(int nsteps)
         std::string message = "an unknown numerical error occurred during simulation";
         throw kernel::CudaError(message);
     }
-
-    timestep += nsteps;
 }
