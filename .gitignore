@@ -13,3 +13,4 @@ dump.log
 *.json
 benchmark/take_derivative
 benchmark/take_derivative.txt
+*.drops
