@@ -49,23 +49,25 @@ def steps_from_time(dt, tfinal):
         ValueError: if t is not a multiple of the timestep.
     """
 
-    nsteps = int(np.round(tfinal / dt))
+    nsteps = np.asarray(np.round(tfinal / dt), dtype=int)
     error = np.abs(nsteps - tfinal / dt)
-    if not np.isclose(error, 0):
+    if not np.all(np.isclose(error, 0)):
         raise ValueError(f'tfinal={tfinal} is not a multiple of dt={dt}!')
 
-    return nsteps
+    return nsteps.item() if np.isscalar(nsteps) else nsteps
 
 
-def step_iterator(dt, tfinal, max_updates, min_update_time):
+def step_iterator(dt, tfinal, max_updates, min_update_time,
+                  t_interrupt=None):
     """Find partitioning of simulation execution into approximately
-    even steps to 
-    Run the simulation for specified time.
+    even steps to provide updates of simulation progress.
 
     Args:
-        t: time (in simulation time units) to run for.
-            Should be a multiple of the timestep in the stencil.
-        show_progress: if True, will show animation 
+        dt: timestep (in simulation time units).
+        tfinal: final time (in simulation time units).
+                Should be a multiple of dt.
+        t_interrupt: times (in simulation time units) to stop at (e.g. to
+                      sample simulation state). Should be multiple of dt.
 
     Raises:
         ValueError: if t is not a multiple of the timestep.
@@ -83,24 +85,36 @@ def step_iterator(dt, tfinal, max_updates, min_update_time):
 
     # Timestep before/after each update.
     timestep = np.linspace(0, nsteps, nupdates + 1, dtype=int)
+
+    # Make sure we also stop on any interruption times.
+    if t_interrupt is not None:
+        t_interrupt = np.asarray(t_interrupt).reshape(-1)
+        interrupts = steps_from_time(dt, t_interrupt)
+        timestep = np.concatenate([timestep, interrupts])
+        timestep = np.unique(timestep)
+
     # Infer step sizes needed to achieve these updates.
     step_size = np.diff(timestep)
     assert len(step_size) >= 1
     assert np.sum(step_size) == nsteps
     assert np.all(step_size >= 0)
 
-    if len(step_size) > 1: return tqdm(step_size)
-    else: return step_size
-
+    return step_size
 
 class Integrator(BaseIntegrator):
-    def run_for_time(self, t, show_progress=False, max_updates=100, min_update_time=10):
+    def run_for_time(self, t, show_progress=False,
+                     t_interrupt=None, f_interrupt=None,
+                     max_updates=100, min_update_time=10):
         """Run the simulation for specified time.
 
         Args:
             t: time (in simulation time units) to run for.
                Should be a multiple of the timestep in the stencil.
-            show_progress: if True, will show animation 
+            show_progress: if True, will show animation.
+            t_interrupt: times (in simulation time units) to stop at (e.g. to
+                         sample simulation state). Should be multiple of
+                         timestep in the stencil.
+            f_interrupt: function to call during interruption to take samples.
 
         Raises:
             ValueError: if t is not a multiple of the timestep.
@@ -108,21 +122,39 @@ class Integrator(BaseIntegrator):
 
         nsteps = steps_from_time(self.stencil.dt, t)
 
-        if not show_progress:
-            self.run(nsteps)
-            return
+        if t_interrupt is not None:
+            assert f_interrupt is not None
+            if np.any(t_interrupt < 0) or np.any(t_interrupt > t):
+                raise ValueError('interrupt outside sim time window!')
 
         initial_timestep = self.timestep
-        fig, axes = plot_field(self.field)
+        if show_progress: fig, axes = plot_field(self.field)
 
-        for steps in step_iterator(self.stencil.dt, t, max_updates, min_update_time):
-            for out in [sys.stdout, sys.stderr]: out.flush()
-            self.run(steps)
+        steps = step_iterator(self.stencil.dt, t,
+                              max_updates, min_update_time,
+                              t_interrupt=t_interrupt)
+        if show_progress: steps = tqdm(steps)
 
-            # Show latest field in output (may only work in Jupyter).
-            clear_output(wait=True)
-            plot_field(self.field, fig, axes)
-            display(fig)
+        for n in steps:
+            if show_progress:
+                for out in [sys.stdout, sys.stderr]: out.flush()
+    
+            if t_interrupt is not None:
+                if np.any(np.isclose(self.time, t_interrupt)):
+                    f_interrupt(self)
 
-        plt.close()
+            assert n > 0
+            self.run(n)
+
+            if show_progress:
+                # Show latest field in output (may only work in Jupyter).
+                clear_output(wait=True)
+                plot_field(self.field, fig, axes)
+                display(fig)
+
+        if show_progress: plt.close()
         assert (self.timestep - initial_timestep) == nsteps
+
+        if t_interrupt is not None:
+            if np.any(np.isclose(self.time, t_interrupt)):
+                f_interrupt(self)
