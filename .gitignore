@@ -1,5 +1,6 @@
 examples/*.pdf
 examples/*.png
+examples/binodal*.csv
 *.o
 build/
 *.so
