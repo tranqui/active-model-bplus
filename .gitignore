@@ -1,6 +1,7 @@
 examples/*.pdf
 examples/*.png
 examples/binodal*.csv
+examples/trajectory*.npz
 *.o
 build/
 *.so
