@@ -128,6 +128,7 @@ class Integrator(BaseIntegrator):
                 raise ValueError('interrupt outside sim time window!')
 
         initial_timestep = self.timestep
+        initial_time = self.time
         if show_progress: fig, axes = plot_field(self.field)
 
         steps = step_iterator(self.stencil.dt, t,
@@ -140,7 +141,7 @@ class Integrator(BaseIntegrator):
                 for out in [sys.stdout, sys.stderr]: out.flush()
     
             if t_interrupt is not None:
-                if np.any(np.isclose(self.time, t_interrupt)):
+                if np.any(np.isclose(self.time - initial_time, t_interrupt)):
                     f_interrupt(self)
 
             assert n > 0
@@ -156,5 +157,5 @@ class Integrator(BaseIntegrator):
         assert (self.timestep - initial_timestep) == nsteps
 
         if t_interrupt is not None:
-            if np.any(np.isclose(self.time, t_interrupt)):
+            if np.any(np.isclose(self.time - initial_time, t_interrupt)):
                 f_interrupt(self)
