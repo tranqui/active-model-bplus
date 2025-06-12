@@ -55,6 +55,7 @@ namespace kernel
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        if (row >= nrows or col >= ncols) return;
         const int index = col + row * ncols;
 
         // Local indices.
@@ -104,8 +105,8 @@ namespace kernel
 
         curandState *rnd = &random_state[index];
         Scalar mag = model.noise_strength * stencil.noise_strength;
-        random_current[0][index] = mag * curand_normal(rnd);
-        random_current[1][index] = mag * curand_normal(rnd);
+        random_current[0][index] = mag * curand_normal_double(rnd);
+        random_current[1][index] = mag * curand_normal_double(rnd);
     }
 
     __global__ void calculate_local_currents(DeviceField passive_chemical_potential,
@@ -118,6 +119,7 @@ namespace kernel
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        if (row >= nrows or col >= ncols) return;
         const int index = col + row * ncols;
 
         // Local indices.
@@ -184,6 +186,7 @@ namespace kernel
         // Global indices.
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        if (row >= nrows or col >= ncols) return;
         const int index = col + row * ncols;
 
         // Local indices.
@@ -263,6 +266,7 @@ namespace kernel
     {
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        if (row >= nrows or col >= ncols) return;
         const int index = col + row * ncols;
         if (not std::isfinite(field[index])) *finite = false;
     }
@@ -272,6 +276,7 @@ namespace kernel
     {
         const int row = blockIdx.y * blockDim.y + threadIdx.y;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
+        if (row >= nrows or col >= ncols) return;
         const int index = col + row * ncols;
         curand_init(seed, index, 0, &state[index]);
     }
@@ -285,21 +290,20 @@ Integrator::Integrator(const HostFieldRef& initial_field,
     : stencil(stencil), model(model),
     nrows(initial_field.rows()),
     ncols(initial_field.cols()),
-    pitch_width(initial_field.cols() * sizeof(Scalar)),
     mem_size(initial_field.rows() * initial_field.cols() * sizeof(Scalar))
 {
     // Initialise device memory.
-    cudaMallocPitch(&field, &field_pitch, pitch_width, nrows);
+    cudaMalloc(&field, mem_size);
     cudaMemcpy(field, initial_field.data(), mem_size, cudaMemcpyHostToDevice);
-    cudaMallocPitch(&passive_chemical_potential, &passive_chemical_potential_pitch, pitch_width, nrows);
-    cudaMallocPitch(&active_chemical_potential, &active_chemical_potential_pitch, pitch_width, nrows);
+    cudaMalloc(&passive_chemical_potential, mem_size);
+    cudaMalloc(&active_chemical_potential, mem_size);
     Field empty = Field::Zero(nrows, ncols);
     for (int c = 0; c < d; ++c)
     {
-        cudaMallocPitch(&pass_current[c], &pass_current_pitch[c], pitch_width, nrows);
-        cudaMallocPitch(&lamb_current[c], &lamb_current_pitch[c], pitch_width, nrows);
-        cudaMallocPitch(&circ_current[c], &circ_current_pitch[c], pitch_width, nrows);
-        cudaMallocPitch(&rand_current[c], &rand_current_pitch[c], pitch_width, nrows);
+        cudaMalloc(&pass_current[c], mem_size);
+        cudaMalloc(&lamb_current[c], mem_size);
+        cudaMalloc(&circ_current[c], mem_size);
+        cudaMalloc(&rand_current[c], mem_size);
         cudaMemcpy(pass_current[c], empty.data(), mem_size, cudaMemcpyHostToDevice);
         cudaMemcpy(lamb_current[c], empty.data(), mem_size, cudaMemcpyHostToDevice);
         cudaMemcpy(circ_current[c], empty.data(), mem_size, cudaMemcpyHostToDevice);
@@ -331,17 +335,10 @@ Integrator::Integrator(const HostFieldRef& initial_field,
 Integrator::Integrator(Integrator&& other) noexcept
     : stencil(other.stencil), model(other.model),
       nrows(other.nrows), ncols(other.ncols),
-      pitch_width(other.pitch_width), mem_size(other.mem_size),
-      field_pitch(std::move(other.field_pitch)),
+      mem_size(other.mem_size),
       field(std::move(other.field)),
-      passive_chemical_potential_pitch(std::move(other.passive_chemical_potential_pitch)),
-      active_chemical_potential_pitch(std::move(other.active_chemical_potential_pitch)),
       passive_chemical_potential(std::move(other.passive_chemical_potential)),
       active_chemical_potential(std::move(other.active_chemical_potential)),
-      pass_current_pitch(std::move(other.pass_current_pitch)),
-      lamb_current_pitch(std::move(other.lamb_current_pitch)),
-      circ_current_pitch(std::move(other.circ_current_pitch)),
-      rand_current_pitch(std::move(other.rand_current_pitch)),
       pass_current(std::move(other.pass_current)),
       lamb_current(std::move(other.lamb_current)),
       circ_current(std::move(other.circ_current)),

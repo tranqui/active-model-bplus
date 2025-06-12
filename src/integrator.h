@@ -65,15 +65,10 @@ protected:
     Stencil stencil;
     Model model;
     int nrows, ncols;
-    size_t pitch_width, mem_size;
+    size_t mem_size;
 
-    size_t field_pitch;
     DeviceField field;
-    size_t passive_chemical_potential_pitch, active_chemical_potential_pitch;
     DeviceField passive_chemical_potential, active_chemical_potential;
-
-    std::array<size_t, d> pass_current_pitch, lamb_current_pitch,
-                          circ_current_pitch, rand_current_pitch;
     DeviceCurrent pass_current, lamb_current, circ_current, rand_current;
 
     curandState *random_state;
