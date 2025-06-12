@@ -188,4 +188,11 @@ namespace kernel
         return square(tjhung_first_y(std::forward<T>(tile), i, j))
              + square(tjhung_first_x(std::forward<T>(tile), i, j));
     }
+
+    template <typename T>
+    static __forceinline__ __device__ Scalar isotropic_laplacian(T&& tile, int i, int j)
+    {
+        return stencil.dxInv*stencil.dxInv * finite_difference::isotropic::second_x(std::forward<T>(tile), i, j)
+             + stencil.dyInv*stencil.dyInv * finite_difference::isotropic::second_y(std::forward<T>(tile), i, j);
+    }
 }
